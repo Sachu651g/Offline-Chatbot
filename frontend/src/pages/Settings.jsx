@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Save, Loader2, Settings2, Sliders, Cpu, ShieldCheck, Database, KeyRound, User, Server, HardDrive, Check } from "lucide-react";
+import { Save, Loader2, Settings2, Sliders, Cpu, ShieldCheck, Database, KeyRound, User, Server, HardDrive, Check, Sparkles } from "lucide-react";
 import api from "@/lib/api";
 import { AppShell } from "@/components/AppShell";
 import { Slider } from "@/components/ui/slider";
@@ -38,14 +38,31 @@ function SettingField({ label, desc, children }) {
     );
 }
 
+const DEFAULT_SETTINGS = {
+    chunk_size: 800,
+    chunk_overlap: 120,
+    top_k: 5,
+    rrf_text_weight: 1.0,
+    rrf_visual_weight: 1.0,
+    local_llm_provider: "lm_studio",
+    lm_studio_host: "http://127.0.0.1:1234/v1",
+    lm_studio_model: "google/gemma-3-4b",
+    ollama_host: "http://127.0.0.1:11434",
+    ollama_model: "gemma3:latest",
+};
+
 export default function Settings() {
     const { user } = useAuth();
-    const [s, setS] = useState(null);
+    const [s, setS] = useState(DEFAULT_SETTINGS);
     const [tab, setTab] = useState("rag");
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
-        api.get("/settings").then(({ data }) => setS(data)).catch(() => {});
+        api.get("/settings")
+            .then(({ data }) => {
+                if (data) setS((prev) => ({ ...prev, ...data }));
+            })
+            .catch(() => {});
     }, []);
 
     const save = async () => {
@@ -131,6 +148,39 @@ export default function Settings() {
                                 <Slider value={[s.chunk_overlap]} min={0} max={400} step={10} onValueChange={([v]) => set("chunk_overlap", v)} data-testid="slider-overlap" />
                             </SettingField>
                         </SectionCard>
+
+                        {/* 6GB RAM Low-Memory Optimization Preset */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl bg-gradient-to-r from-indigo-950/50 via-purple-950/30 to-[#0E0E14] border border-indigo-500/30 p-4 shadow-xl">
+                            <div className="flex items-center gap-3">
+                                <div className="h-9 w-9 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30 shrink-0">
+                                    <Cpu size={18} />
+                                </div>
+                                <div>
+                                    <h4 className="text-xs font-bold text-white font-mono flex items-center gap-2">
+                                        6 GB RAM Low-Memory Optimization Profile
+                                        <span className="rounded-md bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-extrabold text-emerald-400 border border-emerald-500/30">
+                                            Recommended
+                                        </span>
+                                    </h4>
+                                    <p className="text-[11px] text-zinc-400 font-mono leading-relaxed">
+                                        Calibrates 700-char chunking and Top-4 vector retrieval to guarantee zero OOM freezes on 6 GB RAM PCs.
+                                    </p>
+                                </div>
+                            </div>
+                            <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => {
+                                    set("chunk_size", 700);
+                                    set("chunk_overlap", 100);
+                                    set("top_k", 4);
+                                    toast.success("Applied 6 GB RAM Low-Memory Optimization Profile!");
+                                }}
+                                className="h-9 shrink-0 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:opacity-90 text-white font-mono text-xs font-bold shadow-md shadow-indigo-600/30 transition-all"
+                            >
+                                Apply 6GB Preset
+                            </Button>
+                        </div>
 
                         <SectionCard title="Vector Candidate Retrieval & RRF Weights" desc="Balance nearest-neighbor vector search candidate selection and fusion path weights." Icon={Database}>
                             <SettingField label={`Top-K Candidate Retrieval (${s.top_k} vectors)`} desc="Number of top nearest-neighbor chunks selected from each vector path before applying RRF rank fusion.">

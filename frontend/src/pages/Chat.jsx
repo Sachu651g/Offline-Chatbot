@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
     Plus, SendHorizonal, Trash2, Sparkles, Clock, Layers, Loader2, MessageSquareText, History,
     Bot, Search, FileText, Image as ImageIcon, Mic, Cpu, ArrowUpRight, Paperclip, PanelLeftClose, PanelLeftOpen,
-    Download, FileCode, Check, Copy, Share2, Square, X, Maximize2, UploadCloud, FileSpreadsheet
+    Download, FileCode, Check, Copy, Share2, Square, X, Maximize2, UploadCloud, FileSpreadsheet, MicOff, Radio, Volume2, GitBranch
 } from "lucide-react";
 
 
@@ -16,6 +16,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { toast } from "sonner";
 import { Markdown } from "@/components/Markdown";
 import { FileCard } from "@/components/FileCard";
+import { useChat } from "@/context/ChatContext";
 
 function SourceCard({ src, index }) {
     const [open, setOpen] = useState(false);
@@ -328,106 +329,178 @@ function ConversationList({ conversations, convId, onOpen, onNew, onDelete }) {
 }
 
 export default function Chat() {
-    const [conversations, setConversations] = useState([]);
-    const [convId, setConvId] = useState(null);
-    const [messages, setMessages] = useState([]);
-    const [input, setInput] = useState("");
-    const [streaming, setStreaming] = useState(false);
-    const abortRef = useRef(null);
+    const {
+        conversations,
+        convId,
+        messages,
+        input,
+        setInput,
+        attachments,
+        setAttachments,
+        streaming,
+        loadConversations,
+        openConversation,
+        newChat,
+        deleteConversation,
+        stopStreaming,
+        send,
+    } = useChat();
+
     const [historyOpen, setHistoryOpen] = useState(false);
     const [showSidebar, setShowSidebar] = useState(true); // Desktop sidebar toggle
     const [listening, setListening] = useState(false);
+    const [recording, setRecording] = useState(false);
+    const [recordingSeconds, setRecordingSeconds] = useState(0);
+    const [transcribingVoice, setTranscribingVoice] = useState(false);
+    const mediaRecorderRef = useRef(null);
+    const audioChunksRef = useRef([]);
+    const recordingTimerRef = useRef(null);
+    const streamRef = useRef(null);
+
     const [uploadingFile, setUploadingFile] = useState(false);
-    const [attachments, setAttachments] = useState([]);
     const [isDragging, setIsDragging] = useState(false);
     const [lightboxImage, setLightboxImage] = useState(null);
     const fileInputRef = useRef(null);
     const recognitionRef = useRef(null);
     const scrollRef = useRef(null);
 
-    const loadConversations = async () => {
-        try {
-            const { data } = await api.get("/chat/conversations");
-            setConversations(data.conversations);
-        } catch { /* ignore */ }
-    };
-
-    useEffect(() => { loadConversations(); }, []);
-
     useEffect(() => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
     }, [messages]);
 
-    const openConversation = async (id) => {
-        setConvId(id);
+    const handleOpenConversation = (id) => {
         setHistoryOpen(false);
+        openConversation(id);
+    };
+
+    const handleNewChat = () => {
+        setHistoryOpen(false);
+        newChat();
+    };
+
+    const requestMindmapForMessage = (m) => {
+        if (m?.content?.includes("```mermaid") || m?.content?.includes("flowchart") || m?.content?.includes("mindmap")) {
+            toast.info("A visual mindmap is attached to this message. Click 'View Mindmap Result' above to reveal it!");
+            return;
+        }
+        const prompt = "Generate an interactive visual mindmap architecture in a ```mermaid mindmap block for the document/image analysis above.";
+        setInput(prompt);
+        toast.success("Mindmap request queued! Click Send to generate the visual diagram.");
+    };
+
+    // 100% Offline Microphone System:
+    // Captures audio locally via MediaRecorder and transcribes with local Faster-Whisper
+    const startOfflineRecording = async () => {
         try {
-            const { data } = await api.get(`/chat/conversations/${id}/messages`);
-            setMessages(data.messages);
-        } catch { toast.error("Failed to load conversation"); }
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            streamRef.current = stream;
+            audioChunksRef.current = [];
+            const recorder = new MediaRecorder(stream);
+            mediaRecorderRef.current = recorder;
+
+            recorder.ondataavailable = (e) => {
+                if (e.data && e.data.size > 0) {
+                    audioChunksRef.current.push(e.data);
+                }
+            };
+
+            recorder.onstop = async () => {
+                if (recordingTimerRef.current) {
+                    clearInterval(recordingTimerRef.current);
+                }
+                setRecording(false);
+                if (streamRef.current) {
+                    streamRef.current.getTracks().forEach((track) => track.stop());
+                }
+
+                const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+                if (audioBlob.size < 300) {
+                    toast.info("Recording too short. Speak your query and click mic to transcribe.");
+                    return;
+                }
+
+                setTranscribingVoice(true);
+                const toastId = toast.loading("Transcribing voice offline via Faster-Whisper...");
+                try {
+                    const fd = new FormData();
+                    fd.append("file", audioBlob, "voice_input.webm");
+                    const res = await api.post("/chat/voice-transcribe", fd, {
+                        headers: { "Content-Type": "multipart/form-data" },
+                    });
+                    if (res.data?.text) {
+                        const transcript = res.data.text.trim();
+                        setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+                        toast.success(`Voice transcribed: "${transcript.slice(0, 36)}${transcript.length > 36 ? "..." : ""}"`, { id: toastId });
+                    } else if (res.data?.error) {
+                        toast.error(`Offline STT notice: ${res.data.error}. Trying web dictation...`, { id: toastId });
+                        fallbackWebSpeech();
+                    } else {
+                        toast.info("No audible speech detected. Speak louder or closer to mic.", { id: toastId });
+                    }
+                } catch (err) {
+                    toast.error("Offline STT error, switching to browser speech...", { id: toastId });
+                    fallbackWebSpeech();
+                } finally {
+                    setTranscribingVoice(false);
+                }
+            };
+
+            recorder.start(250);
+            setRecording(true);
+            setRecordingSeconds(0);
+            recordingTimerRef.current = setInterval(() => {
+                setRecordingSeconds((s) => s + 1);
+            }, 1000);
+            toast.info("🎙️ Offline Mic Recording — Speak now! Click mic again to finish.");
+        } catch (err) {
+            console.warn("Offline microphone failed, falling back to WebSpeech:", err);
+            fallbackWebSpeech();
+        }
     };
 
-    const newChat = () => { setConvId(null); setMessages([]); setHistoryOpen(false); };
-
-    const deleteConversation = async (id, e) => {
-        e.stopPropagation();
-        await api.delete(`/chat/conversations/${id}`);
-        if (id === convId) newChat();
-        loadConversations();
+    const stopOfflineRecording = () => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+            try {
+                mediaRecorderRef.current.stop();
+            } catch {
+                /* ignore */
+            }
+        }
+        if (recordingTimerRef.current) {
+            clearInterval(recordingTimerRef.current);
+        }
+        setRecording(false);
     };
 
-    // 100% Reliable Web Speech API Voice Assistance
-    const toggleListening = () => {
+    const fallbackWebSpeech = () => {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition) {
-            toast.error("Voice recognition is not supported in your web browser.");
+            toast.error("Microphone access blocked and Web Speech not supported.");
             return;
         }
-        if (listening) {
-            if (recognitionRef.current) {
-                try { recognitionRef.current.stop(); } catch { /* ignore */ }
-            }
-            setListening(false);
-            return;
-        }
-
         try {
             const recognition = new SpeechRecognition();
             recognitionRef.current = recognition;
-            recognition.continuous = false; // Single phrase capture for 100% reliability
+            recognition.continuous = false;
             recognition.interimResults = true;
-            recognition.maxAlternatives = 1;
             recognition.lang = "en-US";
-
             const baseInput = input;
 
             recognition.onstart = () => {
                 setListening(true);
-                toast.info("🎙️ Voice Assistant Active — Speak query now!");
+                toast.info("🎙️ Web Speech Active — Speak query now!");
             };
-
             recognition.onresult = (event) => {
                 let currentSpeech = "";
                 for (let i = event.resultIndex; i < event.results.length; i++) {
                     currentSpeech += event.results[i][0].transcript;
                 }
                 if (currentSpeech.trim()) {
-                    const combined = baseInput ? `${baseInput} ${currentSpeech.trim()}` : currentSpeech.trim();
-                    setInput(combined);
+                    setInput(baseInput ? `${baseInput} ${currentSpeech.trim()}` : currentSpeech.trim());
                 }
             };
-
-            recognition.onerror = (e) => {
-                setListening(false);
-                if (e.error !== "no-speech" && e.error !== "aborted") {
-                    toast.error("Voice assistant note: " + e.error);
-                }
-            };
-
-            recognition.onend = () => {
-                setListening(false);
-            };
-
+            recognition.onerror = () => setListening(false);
+            recognition.onend = () => setListening(false);
             recognition.start();
         } catch (err) {
             setListening(false);
@@ -435,69 +508,81 @@ export default function Chat() {
         }
     };
 
+    const toggleMic = () => {
+        if (recording) {
+            stopOfflineRecording();
+        } else if (listening) {
+            if (recognitionRef.current) {
+                try { recognitionRef.current.stop(); } catch { /* ignore */ }
+            }
+            setListening(false);
+        } else if (transcribingVoice) {
+            toast.info("Transcribing previous recording, please wait...");
+        } else {
+            startOfflineRecording();
+        }
+    };
 
-    // ChatGPT & Antigravity style attachment manager
+
+    // ChatGPT & Antigravity style attachment manager - instant preview & fast direct payload
     const addFilesToAttachments = async (selectedFiles) => {
         const files = Array.from(selectedFiles || []);
         if (files.length === 0) return;
 
-        const newItems = files.map((file) => {
-            const isImg = file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp)$/i.test(file.name);
-            return {
-                id: Math.random().toString(36).slice(2, 10),
-                file,
-                name: file.name,
-                size: file.size,
-                type: file.type,
-                isImage: isImg,
-                previewUrl: isImg ? URL.createObjectURL(file) : null,
-                uploading: true,
-                uploaded: false,
-                error: null,
-                docId: null,
-            };
-        });
+        const newItems = await Promise.all(
+            files.map(async (file) => {
+                const isImg = file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp)$/i.test(file.name);
+                let base64 = null;
+                if (isImg) {
+                    try {
+                        base64 = await new Promise((res) => {
+                            const reader = new FileReader();
+                            reader.onload = () => res(reader.result);
+                            reader.onerror = () => res(null);
+                            reader.readAsDataURL(file);
+                        });
+                    } catch {
+                        base64 = null;
+                    }
+                }
+                return {
+                    id: Math.random().toString(36).slice(2, 10),
+                    file,
+                    name: file.name,
+                    size: file.size,
+                    type: file.type,
+                    isImage: isImg,
+                    previewUrl: isImg ? URL.createObjectURL(file) : null,
+                    base64,
+                    uploading: false,
+                    uploaded: true,
+                    error: null,
+                    docId: null,
+                };
+            })
+        );
 
         setAttachments((prev) => [...prev, ...newItems]);
 
-        // Background ingest into knowledge base (ChromaDB + Vision Model)
+        // Background indexing for documents table without blocking immediate chat interaction
         for (const item of newItems) {
             const fd = new FormData();
             fd.append("files", item.file);
             fd.append("collection", "default");
 
-            try {
-                const { data } = await api.post("/documents/upload", fd, {
-                    headers: { "Content-Type": "multipart/form-data" },
-                });
-                const uploaded = data.uploaded || [];
+            api.post("/documents/upload", fd, {
+                headers: { "Content-Type": "multipart/form-data" },
+            }).then(({ data }) => {
+                const uploaded = data?.uploaded || [];
                 const doc = uploaded[0];
                 if (doc && doc.id) {
                     setAttachments((prev) =>
-                        prev.map((a) =>
-                            a.id === item.id
-                                ? { ...a, uploading: false, uploaded: true, docId: doc.id }
-                                : a
-                        )
-                    );
-                } else {
-                    setAttachments((prev) =>
-                        prev.map((a) =>
-                            a.id === item.id
-                                ? { ...a, uploading: false, error: doc?.error || "Upload failed" }
-                                : a
-                        )
+                        prev.map((a) => (a.id === item.id ? { ...a, docId: doc.id } : a))
                     );
                 }
-            } catch (err) {
-                setAttachments((prev) =>
-                    prev.map((a) =>
-                        a.id === item.id
-                            ? { ...a, uploading: false, error: err.response?.data?.detail || err.message }
-                            : a
-                    )
-                );
-            }
+            }).catch(() => {
+                // Non-blocking upload: chat uses direct base64 image data immediately
+            });
         }
     };
 
@@ -560,122 +645,6 @@ export default function Chat() {
         return text.replace(/\[Attached file:\s*[^\]]+\]/gi, "").trim();
     };
 
-    const send = async () => {
-        const question = input.trim();
-        const hasAttachments = attachments.length > 0;
-        if ((!question && !hasAttachments) || streaming) return;
-
-        // If any attachment is actively uploading, give a quick notification
-        if (attachments.some((a) => a.uploading)) {
-            toast.info("Ingesting attachment in background... Ready in a moment.");
-            return;
-        }
-
-        const currentAttachments = [...attachments];
-        const effectiveQuestion = question || (hasAttachments ? `Analyze and explain this attached ${currentAttachments[0].name}.` : "");
-
-        setInput("");
-        setAttachments([]);
-        setStreaming(true);
-
-        const userMsg = {
-            role: "user",
-            content: effectiveQuestion,
-            attachments: currentAttachments.map((a) => ({
-                name: a.name,
-                size: a.size,
-                isImage: a.isImage,
-                previewUrl: a.previewUrl,
-                docId: a.docId,
-            })),
-        };
-        const assistant = { role: "assistant", content: "", sources: [], latency: null };
-        setMessages((m) => [...m, userMsg, assistant]);
-
-        const controller = new AbortController();
-        abortRef.current = controller;
-        try {
-            const resp = await fetch(`${API}/chat/stream`, {
-                method: "POST",
-                signal: controller.signal,
-                headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-                body: JSON.stringify({
-                    question: effectiveQuestion,
-                    conversation_id: convId,
-                    attachments: currentAttachments.map((a) => ({
-                        name: a.name,
-                        size: a.size,
-                        doc_id: a.docId,
-                        is_image: a.isImage,
-                    })),
-                }),
-            });
-            if (!resp.ok || !resp.body) throw new Error("Stream failed");
-            const reader = resp.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = "";
-            let firstConv = convId;
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-                const parts = buffer.split("\n\n");
-                buffer = parts.pop();
-                for (const part of parts) {
-                    if (!part.startsWith("data: ")) continue;
-                    let obj;
-                    try { obj = JSON.parse(part.slice(6)); } catch { continue; }
-                    if (obj.type === "meta") {
-                        firstConv = obj.conversation_id;
-                        setConvId(obj.conversation_id);
-                        setMessages((m) => {
-                            const copy = [...m];
-                            copy[copy.length - 1] = { ...copy[copy.length - 1], sources: obj.sources, latency: obj.latency };
-                            return copy;
-                        });
-                    } else if (obj.type === "token") {
-                        setMessages((m) => {
-                            const copy = [...m];
-                            copy[copy.length - 1] = {
-                                ...copy[copy.length - 1],
-                                content: copy[copy.length - 1].content + obj.content,
-                            };
-                            return copy;
-                        });
-                    } else if (obj.type === "file") {
-                        const { type: _t, ...fileMeta } = obj;
-                        setMessages((m) => {
-                            const copy = [...m];
-                            copy[copy.length - 1] = { ...copy[copy.length - 1], file: fileMeta };
-                            return copy;
-                        });
-                    } else if (obj.type === "done") {
-                        setMessages((m) => {
-                            const copy = [...m];
-                            const last = copy[copy.length - 1];
-                            copy[copy.length - 1] = {
-                                ...last,
-                                // server sends the cleaned text (file directive stripped)
-                                content: typeof obj.content === "string" ? obj.content : last.content,
-                                latency: obj.latency, backend: obj.backend,
-                            };
-                            return copy;
-                        });
-                    } else if (obj.type === "error") {
-                        toast.error(obj.message || "Generation error");
-                    }
-                }
-            }
-            if (!convId && firstConv) loadConversations();
-        } catch (err) {
-            if (err.name !== "AbortError") toast.error("Streaming failed: " + err.message);
-        } finally {
-            abortRef.current = null;
-            setStreaming(false);
-        }
-    };
-
     const onKey = (e) => {
         if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
     };
@@ -727,8 +696,8 @@ export default function Chat() {
                             <ConversationList
                                 conversations={conversations}
                                 convId={convId}
-                                onOpen={openConversation}
-                                onNew={newChat}
+                                onOpen={handleOpenConversation}
+                                onNew={handleNewChat}
                                 onDelete={deleteConversation}
                             />
                         </motion.div>
@@ -744,8 +713,8 @@ export default function Chat() {
                         <ConversationList
                             conversations={conversations}
                             convId={convId}
-                            onOpen={openConversation}
-                            onNew={newChat}
+                            onOpen={handleOpenConversation}
+                            onNew={handleNewChat}
                             onDelete={deleteConversation}
                         />
                     </SheetContent>
@@ -830,7 +799,7 @@ export default function Chat() {
                             )}
 
                             <button
-                                onClick={newChat}
+                                onClick={handleNewChat}
                                 data-testid="new-chat-button-top"
                                 aria-label="Start new chat"
                                 className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 px-4 py-2 text-xs font-extrabold text-white shadow-xl shadow-indigo-500/25 hover:opacity-95 hover:scale-[1.02] active:scale-[0.98] transition-all"
@@ -1063,6 +1032,15 @@ export default function Chat() {
                                                                         <Share2 size={13} className="text-indigo-400" />
                                                                         <span>Share Response</span>
                                                                     </button>
+
+                                                                    <button
+                                                                        onClick={() => requestMindmapForMessage(m)}
+                                                                        className="flex items-center gap-1.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3 py-1.5 text-indigo-300 hover:text-white hover:border-indigo-500/50 hover:bg-indigo-500/20 transition-all shadow-md font-semibold"
+                                                                        title="View or request an interactive visual mindmap architecture for this response"
+                                                                    >
+                                                                        <GitBranch size={13} className="text-indigo-400" />
+                                                                        <span>Mindmap Option</span>
+                                                                    </button>
                                                                 </div>
 
                                                                 <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
@@ -1190,6 +1168,55 @@ export default function Chat() {
                                 )}
                             </AnimatePresence>
 
+                            {/* Active Recording Waveform Banner */}
+                            <AnimatePresence>
+                                {recording && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: 6 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: 6 }}
+                                        className="flex items-center justify-between rounded-xl bg-gradient-to-r from-rose-950/60 via-purple-950/40 to-indigo-950/60 border border-rose-500/40 px-3.5 py-2 mb-2 font-mono text-xs shadow-lg shadow-rose-950/30"
+                                    >
+                                        <div className="flex items-center gap-2.5">
+                                            <span className="flex h-2.5 w-2.5 rounded-full bg-rose-500 animate-ping" />
+                                            <span className="font-bold text-rose-300">Offline Microphone Active</span>
+                                            <span className="rounded-md bg-rose-500/20 px-2 py-0.5 text-[11px] font-bold text-rose-200 border border-rose-500/30">
+                                                {Math.floor(recordingSeconds / 60).toString().padStart(2, "0")}:{(recordingSeconds % 60).toString().padStart(2, "0")}
+                                            </span>
+                                        </div>
+                                        {/* Dynamic Audio Bars */}
+                                        <div className="flex items-center gap-1">
+                                            {[10, 24, 16, 28, 14, 22, 18, 26, 12, 20].map((h, i) => (
+                                                <motion.div
+                                                    key={i}
+                                                    animate={{ height: [6, h, 6] }}
+                                                    transition={{ repeat: Infinity, duration: 0.5, delay: i * 0.06 }}
+                                                    className="w-1 rounded-full bg-gradient-to-t from-rose-500 to-indigo-400"
+                                                />
+                                            ))}
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={stopOfflineRecording}
+                                            className="text-[11px] font-bold text-white bg-rose-600 hover:bg-rose-500 px-3 py-1 rounded-lg transition-colors shadow-sm"
+                                        >
+                                            Done / Transcribe
+                                        </button>
+                                    </motion.div>
+                                )}
+                                {transcribingVoice && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: 4 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: 4 }}
+                                        className="flex items-center gap-2.5 rounded-xl bg-indigo-950/60 border border-indigo-500/40 px-3.5 py-2 mb-2 font-mono text-xs text-indigo-300"
+                                    >
+                                        <Loader2 size={13} className="animate-spin text-indigo-400" />
+                                        <span>Faster-Whisper transcribing audio query locally (offline)...</span>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+
                             {/* Action Row: Paperclip + Mic + Textarea + Send */}
                             <div className="flex items-center gap-2 w-full">
                                 {/* Quick File Attachment Icon Button */}
@@ -1202,18 +1229,34 @@ export default function Chat() {
                                     <Paperclip size={16} />
                                 </button>
 
-                                {/* Mic Assistance Voice Button */}
+                                {/* 100% Offline Mic Voice Button */}
                                 <button
                                     type="button"
-                                    onClick={toggleListening}
-                                    title={listening ? "Voice Assistant Listening... Speak query" : "Voice Query Assistance"}
+                                    onClick={toggleMic}
+                                    title={
+                                        recording
+                                            ? "Recording active — Click to transcribe query"
+                                            : transcribingVoice
+                                            ? "Transcribing voice offline..."
+                                            : "Offline Voice Query (Faster-Whisper)"
+                                    }
                                     className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-all ${
-                                        listening
-                                            ? "bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse shadow-lg shadow-rose-500/20"
+                                        recording
+                                            ? "bg-rose-600 text-white border-rose-400 animate-pulse shadow-lg shadow-rose-500/40"
+                                            : transcribingVoice
+                                            ? "bg-indigo-600/30 text-indigo-300 border-indigo-500/50"
+                                            : listening
+                                            ? "bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse"
                                             : "border-[#1A1A24] bg-[#12121A] text-zinc-400 hover:text-indigo-400 hover:border-indigo-500/40 hover:bg-[#1A1A24]"
                                     }`}
                                 >
-                                    <Mic size={16} />
+                                    {transcribingVoice ? (
+                                        <Loader2 size={16} className="animate-spin" />
+                                    ) : recording ? (
+                                        <MicOff size={16} />
+                                    ) : (
+                                        <Mic size={16} />
+                                    )}
                                 </button>
 
                                 {/* Text Input Console */}
@@ -1235,7 +1278,7 @@ export default function Chat() {
 
                                 {/* Send Button */}
                                 <Button
-                                    onClick={streaming ? () => abortRef.current?.abort() : send}
+                                    onClick={streaming ? stopStreaming : () => send()}
                                     disabled={!streaming && !input.trim() && attachments.length === 0}
                                     data-testid="send-button"
                                     aria-label={streaming ? "Stop generating" : "Send message"}

@@ -1,58 +1,55 @@
 """Prompt templates that inject RRF-fused context with source citations."""
 import re
 
-SYSTEM_PROMPT = (
-    "You are NEXUS-RAG, a helpful, friendly offline AI assistant that works like ChatGPT. "
-    "When the retrieved CONTEXT is relevant to the user's question, answer "
-    "using it and cite sources inline using their [S#] tags - don't invent "
-    "facts beyond what the context supports. When the question is general "
-    "knowledge, conversational, or simply isn't covered by the retrieved "
-    "context, just answer normally from your own knowledge like any helpful "
-    "assistant would - don't refuse or claim ignorance just because the "
-    "document context doesn't happen to cover it. For casual conversation "
-    "(greetings, thanks, small talk), respond naturally and briefly, and "
-    "don't mention documents or context at all for these. "
-    "Use the earlier messages of the conversation to understand follow-up questions.\n\n"
-    "FORMATTING & ATTRACTIVE DATA PRESENTATION:\n"
-    "- Reply in clean, attractive Markdown.\n"
-    "- Whenever you extract data, analyze a document, compare items, list records, or present metrics, "
-    "YOU MUST FORMAT THE EXTRACTED DATA IN PROPER MARKDOWN TABLES (with clear header row, then |---| separator row, "
-    "then one row per record). Tables look extremely clean in the UI and allow the user to instantly copy or download them as CSV.\n"
-    "- Include descriptive table column headers (e.g., | Item / Field | Details / Extracted Value | Status / Source |).\n"
-    "- Complement tables with concise bullet points, bold key-values, and ### sub-headings to make the UI look structured and professional.\n\n"
-    "FILE GENERATION: Only when the user explicitly asks for a downloadable file "
-    "(Excel/spreadsheet, CSV, Word document, PDF), first write a short normal reply, then end "
-    "your message with exactly ONE fenced block like this:\n"
-    "```file\n"
-    '{"type":"xlsx","filename":"marks","title":"Student Marks",'
-    '"columns":["Name","Maths"],"rows":[["Asha",90],["Ravi",82]],'
-    '"sections":[{"heading":"Summary","body":"Text paragraph"}]}\n'
-    "```\n"
-    'type must be one of xlsx, csv, docx, pdf. For xlsx/csv use "columns" and "rows". '
-    'For docx/pdf use "title" and "sections" (and optionally columns/rows for a table). '
-    "The JSON must be valid. Never mention the block itself; the app turns it into a download."
-)
+def get_system_prompt(model: str | None = None) -> str:
+    m = (model or "gemma-3-4b").lower()
+    if "gemma" in m:
+        model_name = "Gemma 3 (Google Gemma 3 4B Vision)"
+    elif "qwen" in m:
+        model_name = "Qwen 2.5 (Qwen2.5-VL 3B Instruct)"
+    elif "llama" in m:
+        model_name = "Llama 3"
+    else:
+        model_name = model or "Gemma 3"
 
-# Deterministic, zero-latency small-talk detector. Kept intentionally simple
-# (no LLM call, no embedding) so plain greetings never trigger a wasted
-# retrieval pass or get an oddly document-flavored reply. Genuine questions —
-# even short ones like "what is this?" — fall through to normal RAG since
-# they don't match these patterns.
+    return (
+        f"You are NEXUS-RAG, an elite offline AI assistant powered locally by {model_name}.\n\n"
+        "Formatting & Presentation Standards:\n"
+        "1. Clean Markdown Hierarchy: Format answers cleanly using Markdown headers (`### Section Title`), bold labels (`**Field:**`), and bulleted lists (`* Item`).\n"
+        "2. Visual Spacing: Separate paragraphs and list items with clear double newlines.\n"
+        "3. Completeness & Depth: Provide thorough, detailed, and complete answers.\n"
+        "4. Independent Queries: When asked general questions, definitions, or code questions, answer comprehensively using your internal knowledge.\n"
+        "5. Document & Image Grounding: When an attached document, image, or retrieved snippet is provided, ground your answer on the visible content with exact precision.\n"
+        "6. Diagrams & Charts: When explaining workflows or architectures, include a ```mermaid block. When summarizing numbers, include a ```chart block.\n"
+        "7. Zero Hallucination: Never fabricate missing information. If an attribute is not visible, omit it rather than guessing."
+    )
+
+
+SYSTEM_PROMPT = get_system_prompt()
+
+# Deterministic, zero-latency small-talk / conversational detector.
+# Includes greetings, casual chat, and direct identity/model questions so they
+# never trigger unnecessary ChromaDB retrieval passes across unrelated documents.
 _SMALL_TALK_PATTERNS = [
     r"^(hi|hello|hey|yo|sup|hiya)[\s!.,]*$",
     r"^(good\s?(morning|afternoon|evening|night))[\s!.,]*$",
-    r"^(how are you|how('?s| is) it going|what'?s up)[\s?!.,]*$",
+    r"^(how are you|how('?s| is) it going|what'?s up)[\s!.,]*$",
     r"^(thanks?( you)?|thank you( so much)?|ty|thx)[\s!.,]*$",
     r"^(bye|goodbye|see ya|see you|cya|later)[\s!.,]*$",
     r"^(ok(ay)?|cool|nice|great|awesome|got it|sounds good)[\s!.,]*$",
-    r"^(who are you|what are you|what can you do)[\s?!.,]*$",
+    r"^(who are you|what are you|what can you do|tell me about yourself)[\s?!.,]*$",
+    r"^(what|which)\s+(model|llm|ai)\s+(are\s+(you|u)(\s+using)?|is\s+this|do\s+(you|u)\s+use|do\s+(you|u)\s+run)[\s?!.,]*$",
+    r"^(what|which)\s+model[\s?!.,]*$",
+    r"^which\s+model\s+(are\s+)?(u|you)[\s?!.,]*$",
+    r"^what\s+(is\s+your\s+model|model\s+are\s+you)[\s?!.,]*$",
+    r"^(are\s+you\s+(chatgpt|openai|gpt|claude))[\s?!.,]*$",
 ]
 _SMALL_TALK_RE = re.compile("|".join(_SMALL_TALK_PATTERNS), re.IGNORECASE)
 
 
 def is_small_talk(question: str) -> bool:
     q = question.strip()
-    return bool(q) and len(q) <= 60 and bool(_SMALL_TALK_RE.match(q))
+    return bool(q) and len(q) <= 100 and bool(_SMALL_TALK_RE.match(q))
 
 
 def build_context_block(fused_hits):
@@ -64,27 +61,47 @@ def build_context_block(fused_hits):
         loc = meta.get("page")
         loc_str = f", page {loc}" if loc is not None else ""
         doc = (hit.get("document") or "").strip()
-        lines.append(f"[S{i}] ({modality} · {fname}{loc_str})\n{doc}")
+        doc = re.sub(r'[^\x20-\x7E\n\r\t]', ' ', doc)
+        doc = re.sub(r'[ \t]+', ' ', doc).strip()
+        lines.append(f"[S{i}] ({modality} - {fname}{loc_str})\n{doc}")
     return "\n\n".join(lines)
 
 
-def build_user_prompt(question, fused_hits):
-    from datetime import datetime
-    context = build_context_block(fused_hits)
+def build_user_prompt(question, fused_hits, has_image=False):
+    active_files = []
+    for hit in (fused_hits or []):
+        fn = (hit.get("metadata") or {}).get("filename")
+        if fn and fn not in active_files:
+            active_files.append(fn)
+
+    file_header = f"ACTIVE RESOURCE: {', '.join(active_files)}\n\n" if active_files else ""
+
+    if has_image:
+        return (
+            f"{file_header}"
+            f"QUESTION: {question}\n\n"
+            "Inspect the attached image directly and answer clearly and accurately based on what is visible."
+        )
+
+    context = build_context_block(fused_hits) if fused_hits else ""
     has_context = bool(context.strip())
+
     if not has_context:
-        context = "(no relevant documents retrieved for this question)"
-    now_str = datetime.now().strftime("%A, %B %d, %Y, %H:%M")
+        return (
+            f"QUESTION: {question}\n\n"
+            "INSTRUCTIONS:\n"
+            "- Answer the user's question thoroughly, clearly, and in a well-structured format using your extensive knowledge base.\n"
+            "- Use clean Markdown headings (###), bullet points (*), bold terms, and double line breaks.\n"
+            "- For programming or algorithm queries, provide working, optimal code blocks with Big-O time and space complexity.\n"
+            "- Do NOT mention 'provided context' or 'documents' since no file is attached."
+        )
+
     return (
-        f"CURRENT DATE/TIME: {now_str}\n\n"
-        f"CONTEXT (from the user's uploaded documents — may or may not be "
-        f"relevant to this specific question):\n{context}\n\n"
+        f"{file_header}"
+        f"CONTEXT (from user documents):\n{context}\n\n"
         f"QUESTION: {question}\n\n"
-        "If the context above is relevant to the question, use it and cite "
-        "sources as [S#]. When extracting data, facts, comparisons, or structured metrics, format "
-        "the information in a clean, comprehensive Markdown table with clear column headers. "
-        "If the question is general knowledge, conversational, "
-        "or about something the context doesn't cover, answer normally from "
-        "your own knowledge instead — don't refuse or claim you lack "
-        "information just because it isn't in the retrieved context."
+        "INSTRUCTIONS:\n"
+        "- If the question asks about the provided active resource/context, ground your response thoroughly in the data above.\n"
+        "- If the question is an independent technical or general knowledge question, answer it directly and accurately from your knowledge base.\n"
+        "- Structure your answer with clear Markdown headings (###), bold labels, neat bullet points, and clean spacing."
     )

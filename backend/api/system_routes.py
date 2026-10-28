@@ -1,4 +1,4 @@
-"""System / offline status, settings, admin, and eval-stub routes."""
+import asyncio
 from fastapi import APIRouter, Depends, Request, HTTPException
 
 from core.db import db
@@ -23,12 +23,14 @@ async def system_status(user: dict = Depends(get_current_user)):
     o_model = s.get("ollama_model", settings.OLLAMA_MODEL)
 
     stats = chroma_client.stats()
-    lm_studio = await lm_studio_client.status(lm_host, lm_model)
-    ollama = await ollama_client.status(o_host, o_model)
+    lm_studio, ollama = await asyncio.gather(
+        lm_studio_client.status(lm_host, lm_model),
+        ollama_client.status(o_host, o_model),
+    )
 
     active_host = lm_host if prov == "lm_studio" else o_host
     active_model = lm_model if prov == "lm_studio" else o_model
-    backend = await generator.active_backend(active_host, active_model, provider=prov)
+    backend = await generator.active_backend(active_host, active_model, provider=prov, lm_stat=lm_studio, ol_stat=ollama)
 
     return {
         "offline_mode": True,

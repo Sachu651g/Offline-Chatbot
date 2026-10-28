@@ -1,10 +1,16 @@
 """NEXUS-RAG — Offline Multimodal RAG backend (FastAPI)."""
+import os
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["HF_DATASETS_OFFLINE"] = "1"
+
 from dotenv import load_dotenv
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
+import torch  # Ensure static TLS and C++ runtime DLLs (c10.dll) load on main thread on Windows
 import logging
 from datetime import datetime, timezone
 from fastapi import FastAPI, APIRouter

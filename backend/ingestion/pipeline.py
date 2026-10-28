@@ -62,7 +62,7 @@ async def process_document(doc_id: str):
             img = parsers.parse_image(data)
             page_images = [img]
             ocr_text = parsers.ocr_image(img)  # "" if nothing readable
-            caption = await parsers.caption_image_if_enabled(img)
+            caption = await parsers.caption_image_if_enabled(img, existing_text=ocr_text)
             # Combine both: OCR covers printed/handwritten text (forms, IDs,
             # signs); the vision-model caption covers everything OCR can't —
             # objects, scenes, chart/diagram structure. Together they give
@@ -117,7 +117,9 @@ async def process_document(doc_id: str):
             raw_text=(text[:50000] if text else None),
         )
     except Exception as e:  # noqa: BLE001
-        await _set_status(doc_id, "failed", error=str(e)[:400])
+        import traceback
+        traceback.print_exc()
+        await _set_status(doc_id, "failed", error=traceback.format_exc()[-400:])
 
 
 def new_doc_record(user_id, filename, modality, size, collection):

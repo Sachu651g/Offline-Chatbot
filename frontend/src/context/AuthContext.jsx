@@ -44,6 +44,13 @@ export function AuthProvider({ children }) {
             /* ignore */
         }
         clearToken();
+        try {
+            Object.keys(localStorage).forEach((k) => {
+                if (k.startsWith("nexus_active_conv_id")) {
+                    localStorage.removeItem(k);
+                }
+            });
+        } catch { /* ignore */ }
         setUser(null);
     };
 

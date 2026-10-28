@@ -2,6 +2,7 @@ import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { ChatProvider } from "@/context/ChatContext";
 import { Toaster } from "@/components/ui/sonner";
 import Login from "@/pages/Login";
 import Chat from "@/pages/Chat";
@@ -42,23 +43,25 @@ function App() {
     return (
         <div className="App">
             <AuthProvider>
-                <BrowserRouter>
-                    <Routes>
-                        <Route path="/login" element={<Public><Login /></Public>} />
-                        <Route path="/chat" element={<Protected><Chat /></Protected>} />
-                        <Route path="/compare" element={<Protected><Compare /></Protected>} />
-                        <Route path="/ingest" element={<Protected><Ingest /></Protected>} />
-                        <Route path="/knowledge" element={<Protected><KnowledgeBase /></Protected>} />
-                        <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
-                        <Route path="/playground" element={<Protected><Playground /></Protected>} />
-                        <Route path="/inspector" element={<Protected><Inspector /></Protected>} />
-                        <Route path="/system" element={<Protected><SystemStatus /></Protected>} />
-                        <Route path="/settings" element={<Protected><Settings /></Protected>} />
-                        <Route path="/admin" element={<Protected admin><Admin /></Protected>} />
-                        <Route path="*" element={<Navigate to="/chat" replace />} />
-                    </Routes>
-                </BrowserRouter>
-                <Toaster position="top-right" richColors theme="dark" />
+                <ChatProvider>
+                    <BrowserRouter>
+                        <Routes>
+                            <Route path="/login" element={<Public><Login /></Public>} />
+                            <Route path="/chat" element={<Protected><Chat /></Protected>} />
+                            <Route path="/compare" element={<Protected><Compare /></Protected>} />
+                            <Route path="/ingest" element={<Protected><Ingest /></Protected>} />
+                            <Route path="/knowledge" element={<Protected><KnowledgeBase /></Protected>} />
+                            <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
+                            <Route path="/playground" element={<Protected><Playground /></Protected>} />
+                            <Route path="/inspector" element={<Protected><Inspector /></Protected>} />
+                            <Route path="/system" element={<Protected><SystemStatus /></Protected>} />
+                            <Route path="/settings" element={<Protected><Settings /></Protected>} />
+                            <Route path="/admin" element={<Protected admin><Admin /></Protected>} />
+                            <Route path="*" element={<Navigate to="/chat" replace />} />
+                        </Routes>
+                    </BrowserRouter>
+                    <Toaster position="top-right" richColors theme="dark" />
+                </ChatProvider>
             </AuthProvider>
         </div>
     );

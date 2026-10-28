@@ -10,6 +10,7 @@ so a lighter CLIP-style encoder is used instead. This is a documented substituti
 not the original stack presented as-is.
 """
 import asyncio
+import torch  # Pre-initialize C++ runtime DLLs (c10.dll) on the main thread to prevent WinError 1114 in worker threads
 from core.config import settings
 
 _text_model = None

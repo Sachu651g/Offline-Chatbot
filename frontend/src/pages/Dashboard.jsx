@@ -95,17 +95,26 @@ export default function Dashboard() {
 
     useEffect(() => {
         (async () => {
-            const [lr, es, lat] = await Promise.all([
-                api.get("/dashboard/last-retrieval"),
-                api.get("/dashboard/embedding-space"),
-                api.get("/dashboard/latency"),
-            ]);
-            if (lr.data.rankings) setRankings(lr.data.rankings);
-            if (lr.data.content) setContent(lr.data.content);
-            if (es.data.points?.length) setPoints(es.data.points);
-            if (lat.data.series?.length) setLatency(lat.data.series.map((s, i) => ({ ...s, name: `q${i + 1}` })));
-            setLoaded(true);
-        })().catch(() => setLoaded(true));
+            try {
+                const [lr, es, lat] = await Promise.all([
+                    api.get("/dashboard/last-retrieval"),
+                    api.get("/dashboard/embedding-space"),
+                    api.get("/dashboard/latency"),
+                ]);
+                setRankings(lr.data.rankings || null);
+                setContent(lr.data.content || null);
+                setPoints(es.data.points || []);
+                setLatency(lat.data.series?.length ? lat.data.series.map((s, i) => ({ ...s, name: `q${i + 1}` })) : []);
+            } catch (err) {
+                console.error("Dashboard fetch error:", err);
+                setRankings(null);
+                setContent(null);
+                setPoints([]);
+                setLatency([]);
+            } finally {
+                setLoaded(true);
+            }
+        })();
     }, []);
 
     // Toggle demo telemetry if backend has no traces yet

@@ -2,6 +2,8 @@ import { useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, Copy, Download, FileSpreadsheet } from "lucide-react";
+import DynamicChartBlock from "./DynamicChartBlock";
+import MermaidBlock from "./MermaidBlock";
 
 function csvEscape(v) {
     const s = String(v ?? "").replace(/\r?\n/g, " ").trim();
@@ -83,7 +85,8 @@ function MdTable({ children }) {
     );
 }
 
-function CodeBlock({ language, text }) {
+
+function StandardCodeBlock({ language, text }) {
     const [copied, setCopied] = useState(false);
     const copy = async () => {
         try {
@@ -103,6 +106,42 @@ function CodeBlock({ language, text }) {
             <pre className="overflow-x-auto p-3 font-mono text-xs leading-relaxed text-zinc-200"><code>{text}</code></pre>
         </div>
     );
+}
+
+function CodeBlock({ language, text }) {
+    const trimmed = (text || "").trim();
+    const lang = (language || "").toLowerCase();
+
+    // 1. Mermaid Flowcharts / Mindmaps / Diagrams
+    if (
+        lang === "mermaid" ||
+        trimmed.startsWith("graph ") ||
+        trimmed.startsWith("flowchart ") ||
+        trimmed.startsWith("sequenceDiagram") ||
+        trimmed.startsWith("mindmap") ||
+        trimmed.startsWith("classDiagram") ||
+        trimmed.startsWith("stateDiagram")
+    ) {
+        return <MermaidBlock chartCode={trimmed} />;
+    }
+
+    // 2. Dynamic Visual Charts (Bar, Area, Trend, Donut)
+    if (lang === "chart" || lang === "json-chart" || lang === "recharts") {
+        return <DynamicChartBlock dataJson={trimmed} />;
+    }
+
+    if (lang === "json" && (trimmed.includes('"type"') || trimmed.includes('"data"'))) {
+        try {
+            const parsed = JSON.parse(trimmed);
+            if (parsed && parsed.data && Array.isArray(parsed.data) && (parsed.type || parsed.title)) {
+                return <DynamicChartBlock dataJson={parsed} />;
+            }
+        } catch {
+            /* standard json */
+        }
+    }
+
+    return <StandardCodeBlock language={language} text={text} />;
 }
 
 const components = {

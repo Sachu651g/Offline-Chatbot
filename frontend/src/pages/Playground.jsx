@@ -1,8 +1,13 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BrainCircuit, Play, RefreshCw, Sliders, Sparkles, Code2, Cpu, Loader2, Copy, Check, FileText, Download, CheckCircle2, ArrowRight, BookOpen, Briefcase, Zap, HelpCircle } from "lucide-react";
+import {
+    BrainCircuit, Play, RefreshCw, Sliders, Sparkles, Code2, Cpu, Loader2, Copy, Check,
+    FileText, Download, CheckCircle2, ArrowRight, BookOpen, Briefcase, Zap, HelpCircle,
+    Activity, Gauge, Terminal, Layers, Compass, Eye, X
+} from "lucide-react";
 import api, { API, getToken } from "@/lib/api";
 import { AppShell } from "@/components/AppShell";
+import { Markdown } from "@/components/Markdown";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
@@ -20,6 +25,16 @@ const PERSONAS = [
         topK: 5,
     },
     {
+        id: "coding_specialist",
+        name: "Algorithm & Code Architect",
+        icon: Terminal,
+        color: "text-cyan-400 border-cyan-500/30 bg-cyan-500/10",
+        desc: "Optimal algorithms, clean code & Big-O complexity",
+        system: "You are an elite software architect and algorithm expert. Write production-grade code with Time & Space Complexity (Big-O analysis) and edge-case handling.",
+        temp: 0.1,
+        topK: 4,
+    },
+    {
         id: "executive",
         name: "Executive Briefing",
         icon: Briefcase,
@@ -34,8 +49,8 @@ const PERSONAS = [
         name: "Technical Spec Extractor",
         icon: Code2,
         color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/10",
-        desc: "Extracts API schemas, specs & code blocks",
-        system: "Extract technical specifications, API schemas, and code blocks from retrieved context. Output clean markdown.",
+        desc: "Extracts API schemas, specs & visual diagrams",
+        system: "Extract technical specifications, API schemas, and mermaid architecture diagrams from retrieved context. Output clean markdown.",
         temp: 0.1,
         topK: 5,
     },
@@ -45,10 +60,17 @@ const PERSONAS = [
         icon: Zap,
         color: "text-amber-400 border-amber-500/30 bg-amber-500/10",
         desc: "Balanced multi-modal synthesis across documents",
-        system: "Synthesize insights across all retrieved text and visual document chunks into an engaging explanatory answer.",
+        system: "Synthesize insights across all retrieved text and visual document chunks into an engaging explanatory answer with visual charts if applicable.",
         temp: 0.5,
         topK: 6,
     },
+];
+
+const PRESET_QUERIES = [
+    { label: "Architecture Flowchart", query: "Extract system architecture and generate a visual mermaid flowchart." },
+    { label: "Algorithms & Complexity", query: "Explain the optimal algorithm with code and time/space complexity analysis." },
+    { label: "Executive Summary", query: "Summarize the key findings, metrics, and actionable executive takeaways." },
+    { label: "Financial Data & Chart", query: "Extract numeric values and generate a dynamic json-chart for visual distribution." },
 ];
 
 export default function Playground() {
@@ -84,7 +106,7 @@ export default function Playground() {
             const resp = await fetch(`${API}/chat/stream`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-                body: JSON.stringify({ question: userPrompt }),
+                body: JSON.stringify({ question: userPrompt, is_playground: true }),
             });
             if (!resp.ok) throw new Error("Simulator execution failed");
             const reader = resp.body.getReader();
@@ -245,9 +267,27 @@ export default function Playground() {
                             </div>
                         </div>
 
-                        {/* Test Question Box */}
-                        <div className="rounded-2xl border border-[#1A1A24] bg-[#0E0E14] p-5 shadow-2xl space-y-3">
-                            <label className="font-mono text-xs font-bold text-white block">Test Simulation Query</label>
+                        {/* Test Question Box & Presets */}
+                        <div className="rounded-2xl border border-[#1A1A24] bg-[#0E0E14] p-5 shadow-2xl space-y-3.5">
+                            <div className="flex items-center justify-between">
+                                <label className="font-mono text-xs font-bold text-white block">Test Simulation Query</label>
+                                <span className="text-[10px] font-mono text-indigo-400 font-bold">1-Click Benchmark Presets</span>
+                            </div>
+
+                            {/* Preset Chips */}
+                            <div className="flex flex-wrap gap-1.5">
+                                {PRESET_QUERIES.map((pq, idx) => (
+                                    <button
+                                        key={idx}
+                                        type="button"
+                                        onClick={() => setUserPrompt(pq.query)}
+                                        className="rounded-lg border border-[#222234] bg-[#12121A] px-2.5 py-1 text-[10px] font-mono font-medium text-zinc-300 hover:text-white hover:border-indigo-500/50 hover:bg-indigo-500/10 transition-all text-left"
+                                    >
+                                        ⚡ {pq.label}
+                                    </button>
+                                ))}
+                            </div>
+
                             <Textarea
                                 value={userPrompt}
                                 onChange={(e) => setUserPrompt(e.target.value)}
@@ -272,6 +312,9 @@ export default function Playground() {
                             <div className="flex items-center justify-between border-b border-[#1A1A24] pb-3.5">
                                 <div className="flex items-center gap-2 font-mono text-xs font-bold text-white">
                                     <Sparkles size={16} className="text-indigo-400" /> Simulated AI Response Stream
+                                    <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[9px] font-bold text-emerald-400 border border-emerald-500/20">
+                                        Interactive Markdown & Diagrams
+                                    </span>
                                 </div>
                                 {response && (
                                     <button
@@ -284,16 +327,16 @@ export default function Playground() {
                                 )}
                             </div>
 
-                            <div className="flex-1 overflow-y-auto max-h-[420px] space-y-3 font-mono text-xs leading-relaxed text-zinc-200 whitespace-pre-wrap">
+                            <div className="flex-1 overflow-y-auto max-h-[480px] space-y-3 font-mono text-xs leading-relaxed text-zinc-200">
                                 {response ? (
-                                    response
+                                    <Markdown>{response}</Markdown>
                                 ) : loading ? (
                                     <div className="flex items-center gap-2 text-indigo-400 py-20 justify-center">
                                         <Loader2 className="animate-spin" size={18} /> Streaming grounded persona simulation…
                                     </div>
                                 ) : (
                                     <div className="py-24 text-center text-zinc-500 font-mono text-xs">
-                                        Click "Run Live Simulation" to benchmark RAG response generation.
+                                        Click "Run Live Simulation" or pick a benchmark preset to test RAG generation.
                                     </div>
                                 )}
                             </div>

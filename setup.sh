@@ -98,7 +98,7 @@ if [ ! -f ".env" ]; then
 fi
 
 echo "Installing frontend npm packages (this may take a minute)..."
-npm install
+npm install --legacy-peer-deps
 echo -e "${GREEN}✓ Frontend dependencies installed successfully!${NC}"
 
 # 4. Completion

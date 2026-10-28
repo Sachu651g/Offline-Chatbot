@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-    GitCompareArrows, Search, Loader2, ArrowRight, Sliders, Zap, Layers, Sparkles, ChevronDown, ChevronUp, FileText, Image as ImageIcon, Mic, Cpu, Check, Activity, BarChart2
+    GitCompareArrows, Search, Loader2, ArrowRight, Sliders, Zap, Layers, Sparkles, ChevronDown, ChevronUp, FileText, Image as ImageIcon, Mic, Cpu, Check, Activity, BarChart2, Copy, Compass, Scale, GitMerge
 } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import api from "@/lib/api";
@@ -35,6 +35,24 @@ function rrfFuse(textHits, visualHits, wText, wVisual, topK) {
 
 function HitRow({ hit, i, color, mode }) {
     const [open, setOpen] = useState(false);
+    const [copied, setCopied] = useState(false);
+
+    // Compute angular distance in degrees from cosine similarity
+    const scoreVal = hit.score ?? 0.85;
+    const clampedScore = Math.min(1, Math.max(-1, scoreVal));
+    const angularDeg = (Math.acos(clampedScore) * (180 / Math.PI)).toFixed(1);
+    const tokenEst = Math.round((hit.document?.length || 0) / 4);
+
+    const copyText = (e) => {
+        e.stopPropagation();
+        if (hit.document) {
+            navigator.clipboard.writeText(hit.document);
+            setCopied(true);
+            toast.success("Vector chunk payload copied to clipboard");
+            setTimeout(() => setCopied(false), 2000);
+        }
+    };
+
     return (
         <motion.div
             layout
@@ -62,9 +80,19 @@ function HitRow({ hit, i, color, mode }) {
 
                 {mode === "fused" ? (
                     <div className="flex items-center gap-2">
-                        <span className="font-mono text-[10px] font-bold text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-md">
-                            {hit.text_rank ? `Text #${hit.text_rank}` : "—"} · {hit.visual_rank ? `Visual #${hit.visual_rank}` : "—"}
-                        </span>
+                        {hit.text_rank && hit.visual_rank ? (
+                            <span className="font-mono text-[9px] font-extrabold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-md flex items-center gap-1">
+                                <GitMerge size={10} /> Dual Stream
+                            </span>
+                        ) : hit.text_rank ? (
+                            <span className="font-mono text-[9px] font-extrabold text-indigo-300 bg-indigo-500/15 border border-indigo-500/30 px-2 py-0.5 rounded-md">
+                                Text #{hit.text_rank}
+                            </span>
+                        ) : (
+                            <span className="font-mono text-[9px] font-extrabold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-md">
+                                Visual #{hit.visual_rank}
+                            </span>
+                        )}
                         <span className="font-mono text-xs font-black px-2 py-0.5 rounded-md bg-rose-500/10 border border-rose-500/30 text-rose-400">
                             RRF: {hit.rrf_score.toFixed(4)}
                         </span>
@@ -89,13 +117,31 @@ function HitRow({ hit, i, color, mode }) {
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: "auto", opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
-                        className="bg-[#08080C] px-4 py-3.5 border-t border-[#1A1A24]/60 space-y-2 font-mono text-xs rounded-b-xl"
+                        className="bg-[#08080C] px-4 py-3.5 border-t border-[#1A1A24]/60 space-y-3 font-mono text-xs rounded-b-xl"
                     >
-                        <div className="flex items-center justify-between text-[10px] font-bold text-indigo-400">
-                            <span>EXTRACTED VECTOR CHUNK PREVIEW</span>
-                            <span className="text-zinc-500">ID: {hit.id?.slice(0, 16)}…</span>
+                        {/* Telemetry Metrics Bar */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-zinc-400 bg-[#101018] p-2.5 rounded-xl border border-white/5">
+                            <div className="flex items-center gap-3">
+                                <span className="flex items-center gap-1 text-indigo-300">
+                                    <Compass size={12} /> θ = {angularDeg}° angle
+                                </span>
+                                <span>~{tokenEst} tokens</span>
+                                <span>{hit.document?.length || 0} chars</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-zinc-500">ID: {hit.id?.slice(0, 14)}…</span>
+                                <button
+                                    onClick={copyText}
+                                    className="flex items-center gap-1 rounded bg-white/5 px-2 py-0.5 text-zinc-300 hover:text-white hover:bg-white/10 transition-colors"
+                                >
+                                    {copied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+                                    <span>{copied ? "Copied" : "Copy"}</span>
+                                </button>
+                            </div>
                         </div>
-                        <p className="text-zinc-300 leading-relaxed bg-[#12121A] p-3.5 rounded-xl border border-[#1A1A24] whitespace-pre-wrap">
+
+                        {/* Chunk Payload Content */}
+                        <p className="text-zinc-300 leading-relaxed bg-[#12121A] p-3.5 rounded-xl border border-[#1A1A24] whitespace-pre-wrap max-h-48 overflow-y-auto">
                             {hit.document || "(No text content preview available)"}
                         </p>
                     </motion.div>
@@ -294,15 +340,52 @@ export default function Compare() {
 
                 {/* Triple Column Vector Path Matrix */}
                 {textHits.length === 0 && visualHits.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-[#1A1A24] bg-[#0E0E14]/60 p-16 text-center space-y-3">
-                        <GitCompareArrows className="mx-auto text-indigo-400 animate-pulse" size={36} />
-                        <p className="font-mono text-xs font-bold text-white">No query results executed yet</p>
-                        <p className="font-mono text-xs text-zinc-500 max-w-md mx-auto">
-                            Enter a search query or click one of the preset sample query tags above to run side-by-side vector fusion.
-                        </p>
+                    <div className="rounded-2xl border border-dashed border-[#1A1A24] bg-[#0E0E14]/60 p-12 text-center space-y-4">
+                        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+                            <GitCompareArrows className="animate-pulse" size={28} />
+                        </div>
+                        <div className="space-y-1">
+                            <p className="font-heading text-lg font-bold text-white">Dual-Stream Vector Engine Ready</p>
+                            <p className="font-mono text-xs text-zinc-400 max-w-md mx-auto">
+                                Run a side-by-side comparison of MiniLM 384-d semantic text vectors vs CLIP ViT-B 512-d visual vectors with Reciprocal Rank Fusion.
+                            </p>
+                        </div>
+                        <div className="pt-2">
+                            <Button
+                                onClick={() => run("Artificial Intelligence & Machine Learning Architecture")}
+                                disabled={loading}
+                                className="h-10 gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-xs font-bold px-5 shadow-lg shadow-indigo-600/20"
+                            >
+                                <Zap size={14} /> ⚡ Run Instant Benchmark Retrieval
+                            </Button>
+                        </div>
                     </div>
                 ) : (
                     <div className="space-y-6">
+                        {/* Co-occurrence & Fusion Insights Bar */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-xs">
+                            <div className="rounded-xl border border-[#1A1A24] bg-[#0E0E14] p-3 space-y-0.5">
+                                <span className="text-[10px] text-zinc-500 uppercase font-bold">Text Candidates</span>
+                                <p className="text-lg font-black text-[#818CF8]">{textHits.length} Matches</p>
+                            </div>
+                            <div className="rounded-xl border border-[#1A1A24] bg-[#0E0E14] p-3 space-y-0.5">
+                                <span className="text-[10px] text-zinc-500 uppercase font-bold">Visual Candidates</span>
+                                <p className="text-lg font-black text-[#FBBF24]">{visualHits.length} Matches</p>
+                            </div>
+                            <div className="rounded-xl border border-[#1A1A24] bg-[#0E0E14] p-3 space-y-0.5">
+                                <span className="text-[10px] text-zinc-500 uppercase font-bold">Dual-Stream Concurrence</span>
+                                <p className="text-lg font-black text-emerald-400">
+                                    {fused.filter((f) => f.text_rank && f.visual_rank).length} Intersected
+                                </p>
+                            </div>
+                            <div className="rounded-xl border border-[#1A1A24] bg-[#0E0E14] p-3 space-y-0.5">
+                                <span className="text-[10px] text-zinc-500 uppercase font-bold">Top Ranked Document</span>
+                                <p className="text-xs font-black text-rose-400 truncate" title={fused[0]?.filename}>
+                                    {fused[0]?.filename || "N/A"}
+                                </p>
+                            </div>
+                        </div>
+
                         <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
                             <Column title="Text Path · MiniLM" subtitle="SentenceTransformers 384-d" color="#818CF8" hits={textHits} mode="text" />
                             <Column title="Visual Path · CLIP" subtitle="ViT-B-32 Image Embeddings" color="#FBBF24" hits={visualHits} mode="visual" />

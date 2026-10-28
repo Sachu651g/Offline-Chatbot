@@ -3,6 +3,11 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
+# Force HuggingFace and Transformers to run strictly offline from local cache
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["HF_DATASETS_OFFLINE"] = "1"
+
 ROOT_DIR = Path(__file__).parent.parent
 load_dotenv(ROOT_DIR / ".env")
 
@@ -16,14 +21,14 @@ class Settings:
     # Local LLM Engine: "lm_studio", "ollama", or "auto"
     LOCAL_LLM_PROVIDER = os.environ.get("LOCAL_LLM_PROVIDER", "lm_studio")
 
-    # LM Studio (OpenAI-compatible local server, default: http://localhost:1234/v1)
-    LM_STUDIO_HOST = os.environ.get("LM_STUDIO_HOST", "http://localhost:1234/v1")
-    LM_STUDIO_MODEL = os.environ.get("LM_STUDIO_MODEL", "qwen2.5-vl-3b")
-    LM_STUDIO_VISION_MODEL = os.environ.get("LM_STUDIO_VISION_MODEL", "qwen2.5-vl-3b")
+    # LM Studio (OpenAI-compatible local server, default: http://127.0.0.1:1234/v1)
+    LM_STUDIO_HOST = os.environ.get("LM_STUDIO_HOST", "http://127.0.0.1:1234/v1")
+    LM_STUDIO_MODEL = os.environ.get("LM_STUDIO_MODEL", "google/gemma-3-4b")
+    LM_STUDIO_VISION_MODEL = os.environ.get("LM_STUDIO_VISION_MODEL", "google/gemma-3-4b")
 
     # Local Ollama (offline deployment path — documented)
-    OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-    OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "mistral:7b")
+    OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+    OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma3:latest")
 
     # Vision-capable Ollama model for real image analysis (captioning/
     # description at ingestion time) — separate from OLLAMA_MODEL, which is

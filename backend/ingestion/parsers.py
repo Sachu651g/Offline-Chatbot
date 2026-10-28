@@ -93,77 +93,160 @@ def parse_image(data: bytes):
 
 
 def ocr_image(img) -> str:
-    """Extract printed/handwritten text from an image via Tesseract — fully
-    offline, no model download (ships its own trained data as an apt
-    package). Without this, images only get a CLIP visual-similarity match;
-    the LLM never actually sees text printed on IDs, forms, signs, etc.
-
-    Runs OCR twice — on the raw image AND on a preprocessed version
-    (grayscale, upscale, denoise, adaptive threshold) — then combines both.
-    This matters: preprocessing meaningfully helps noisy/skewed photographed
-    documents (e.g. photographed grade cards) but was verified to actively
-    HURT extraction on cleaner scans (e.g. a flat ID card photo) where raw
-    OCR alone worked better. Combining both avoids regressing either case.
-
-    Known limitation: small numeric text in busy tables on low-quality
-    photos can still OCR imperfectly (e.g. "8.8" misread as "88") — for
-    documents where exact figures matter, a flatter, well-lit photo or a
-    real scan will extract far more reliably than a tilted phone photo.
+    """Extract printed/handwritten text from an image.
+    Uses multi-tier offline OCR:
+    1. RapidOCR (PaddleOCR ONNX) — state-of-the-art deep learning OCR for documents, forms, IDs, and cards.
+    2. Native Windows OCR (winocr) — fast Windows-native OCR with multi-scale Lanczos resampling.
+    3. Tesseract OCR (with OpenCV adaptive thresholding fallback).
+    4. OpenCV QR code / barcode detector.
     """
-    import pytesseract
-    import numpy as np
-
     img = img.convert("RGB")
-    try:
-        raw_text = pytesseract.image_to_string(img).strip()
-    except Exception:
-        raw_text = ""
+    extracted_texts = []
 
-    processed_text = ""
+    # 1. RapidOCR (Deep-learning ONNX OCR — highest accuracy for ID cards, receipts, documents)
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+        import numpy as np
+        if not hasattr(ocr_image, "_rapidocr"):
+            ocr_image._rapidocr = RapidOCR()
+        rapid_res, _ = ocr_image._rapidocr(np.array(img))
+        if rapid_res:
+            r_lines = [line[1].strip() for line in rapid_res if line and line[1].strip()]
+            if r_lines:
+                extracted_texts.append("\n".join(r_lines))
+    except Exception:
+        pass
+
+    # Prepare upscaled version for small images (e.g. card photos/crops under 1200px)
+    from PIL import Image as PILImg
+    w, h = img.size
+    upscaled_img = None
+    if max(w, h) < 1200:
+        factor = min(3, max(2, 1200 // max(w, h, 1)))
+        try:
+            upscaled_img = img.resize((w * factor, h * factor), PILImg.Resampling.LANCZOS)
+        except Exception:
+            upscaled_img = None
+
+    # 2. Native Windows Media OCR (instant, offline, built into Windows 10/11)
+    try:
+        import winocr
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            res_w = pool.submit(winocr.recognize_pil_sync, img, "en").result()
+            if res_w and res_w.get("text") and res_w["text"].strip():
+                extracted_texts.append(res_w["text"].strip())
+
+            if upscaled_img:
+                res_w_up = pool.submit(winocr.recognize_pil_sync, upscaled_img, "en").result()
+                if res_w_up and res_w_up.get("text") and res_w_up["text"].strip():
+                    extracted_texts.append(res_w_up["text"].strip())
+    except Exception:
+        pass
+
+    # 3. QR / Barcode Data Detection
     try:
         import cv2
+        import numpy as np
         arr = np.array(img)
-        gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
-        h, w = gray.shape
-        gray = cv2.resize(gray, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
-        gray = cv2.fastNlMeansDenoising(gray, h=15)
-        thresh = cv2.adaptiveThreshold(
-            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 11
-        )
-        from PIL import Image as PILImage
-        processed = PILImage.fromarray(thresh)
-        processed_text = pytesseract.image_to_string(processed, config="--psm 6").strip()
+        detector = cv2.QRCodeDetector()
+        qr_val, _, _ = detector.detectAndDecode(arr)
+        if qr_val and qr_val.strip():
+            extracted_texts.append(f"[Embedded QR Code Data: {qr_val.strip()}]")
+        elif upscaled_img:
+            qr_val_up, _, _ = detector.detectAndDecode(np.array(upscaled_img))
+            if qr_val_up and qr_val_up.strip():
+                extracted_texts.append(f"[Embedded QR Code Data: {qr_val_up.strip()}]")
     except Exception:
-        pass  # cv2 preprocessing unavailable/failed — raw_text still stands
+        pass
 
-    combined = "\n".join(t for t in (raw_text, processed_text) if t)
-    return combined.strip()
+    # 4. Tesseract OCR (with Windows path auto-discovery and adaptive thresholding)
+    try:
+        import pytesseract
+        import shutil
+        import os
+        import numpy as np
+
+        if not shutil.which("tesseract"):
+            for candidate in [
+                r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+                os.path.expandvars(r"%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe"),
+            ]:
+                if os.path.exists(candidate):
+                    pytesseract.pytesseract.tesseract_cmd = candidate
+                    break
+
+        t_text = pytesseract.image_to_string(img).strip()
+        if t_text and t_text not in extracted_texts:
+            extracted_texts.append(t_text)
+
+        # Preprocessed pass for noisy images
+        try:
+            import cv2
+            arr = np.array(img)
+            gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+            gh, gw = gray.shape
+            gray = cv2.resize(gray, (gw * 2, gh * 2), interpolation=cv2.INTER_CUBIC)
+            gray = cv2.fastNlMeansDenoising(gray, h=15)
+            thresh = cv2.adaptiveThreshold(
+                gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 11
+            )
+            from PIL import Image as PILImage
+            processed = PILImage.fromarray(thresh)
+            p_text = pytesseract.image_to_string(processed, config="--psm 6").strip()
+            if p_text and p_text not in extracted_texts:
+                extracted_texts.append(p_text)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    raw = "\n\n".join(t for t in extracted_texts if t.strip()).strip()
+    import re
+    raw = re.sub(r'[^\x20-\x7E\n\r\t]', ' ', raw)
+    raw = re.sub(r'[ \t]+', ' ', raw)
+    return raw.strip()
 
 
-async def caption_image_if_enabled(img) -> str:
+async def caption_image_if_enabled(img, existing_text: str = "") -> str:
     """Real image content analysis via a local vision model (LM Studio or Ollama).
-    Returns "" (not an error) if disabled or unreachable — ingestion always
-    proceeds with whatever OCR text is available rather than failing the whole upload."""
+    If OCR already extracted comprehensive text (>35 characters, e.g. ID card, invoice, document),
+    returns immediately to ensure sub-second ingestion.
+    For non-textual images (photos, charts), requests a concise 2-3 sentence visual summary."""
     if not settings.ENABLE_IMAGE_CAPTIONING:
         return ""
+    # If OCR text is already rich and clear, skip expensive vision LLM ingestion delay
+    if existing_text and len(existing_text.strip()) > 35:
+        return ""
+
     try:
         buf = io.BytesIO()
         img.convert("RGB").save(buf, format="JPEG", quality=85)
         img_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
 
-        # Try LM Studio first if configured or available
         from llm import lm_studio_client, ollama_client
         if settings.LOCAL_LLM_PROVIDER in ("lm_studio", "auto") and await lm_studio_client.is_available():
-            cap = await lm_studio_client.caption_image(img_b64)
-            if cap:
-                return cap
+            try:
+                cap = await asyncio.wait_for(lm_studio_client.caption_image(img_b64), timeout=8.0)
+                if cap and not (cap.count("?") > 5 and cap.count("?") > len(cap) * 0.2):
+                    return cap
+            except Exception:
+                pass
 
         if await ollama_client.is_available(settings.OLLAMA_HOST):
-            return await ollama_client.caption_image(
-                img_b64, settings.OLLAMA_HOST, settings.OLLAMA_VISION_MODEL
-            )
+            try:
+                cap = await asyncio.wait_for(
+                    ollama_client.caption_image(img_b64, settings.OLLAMA_HOST, settings.OLLAMA_VISION_MODEL),
+                    timeout=8.0,
+                )
+                if cap and not (cap.count("?") > 5 and cap.count("?") > len(cap) * 0.2):
+                    return cap
+            except Exception:
+                pass
     except Exception:
         return ""
+    return ""
 
 
 async def parse_audio(data: bytes, filename: str) -> str:
@@ -185,16 +268,20 @@ async def _parse_audio_local(data: bytes, filename: str) -> str:
 
     def _transcribe():
         model = _get_whisper_model()
-        # faster-whisper reads from a file path, not an in-memory stream,
-        # so we spool the bytes to a short-lived temp file.
         suffix = os.path.splitext(filename)[1] or ".wav"
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
-            tmp.write(data)
-            tmp.flush()
-            segments, _info = model.transcribe(tmp.name, beam_size=5)
+        fd, path = tempfile.mkstemp(suffix=suffix)
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+            # beam_size=1 delivers instant latency and low memory footprint on CPU (ideal for 6GB RAM)
+            segments, _info = model.transcribe(path, beam_size=1)
             return " ".join(seg.text.strip() for seg in segments)
+        finally:
+            try:
+                os.remove(path)
+            except Exception:
+                pass
 
-    # transcribe() is CPU-bound and blocking; run it off the event loop
     return await asyncio.to_thread(_transcribe)
 
 

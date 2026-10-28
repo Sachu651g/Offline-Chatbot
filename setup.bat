@@ -16,7 +16,7 @@ python --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo [ERROR] Python is not installed or not in your Windows PATH.
     echo Please install Python 3.10+ from https://www.python.org/downloads/
-    echo (Make sure to check "Add python.exe to PATH" during installation)
+    echo [TIP] Make sure to check "Add python.exe to PATH" during installation.
     pause
     exit /b 1
 )
@@ -33,7 +33,7 @@ if %errorlevel% neq 0 (
 for /f "tokens=*" %%i in ('node -v') do echo [OK] Found Node.js: %%i
 
 :: Check npm
-npm -v >nul 2>&1
+call npm -v >nul 2>&1
 if %errorlevel% neq 0 (
     echo [ERROR] npm is not installed or not in your Windows PATH.
     pause
@@ -67,7 +67,7 @@ echo Upgrading pip...
 python -m pip install --upgrade pip
 
 echo Installing backend Python packages from requirements.txt...
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 if %errorlevel% neq 0 (
     echo [WARNING] Some packages reported warnings. Continuing setup...
 )
@@ -88,7 +88,7 @@ if not exist ".env" (
 )
 
 echo Installing frontend npm packages (this may take 1-2 minutes)...
-call npm install
+call npm install --legacy-peer-deps
 if %errorlevel% neq 0 (
     echo [ERROR] Frontend npm install failed.
     pause

@@ -21,15 +21,29 @@ const NAV = [
     { to: "/settings", label: "Settings", Icon: Settings2, testid: "nav-settings" },
 ];
 
+let _cachedStatus = null;
+let _cachedStatusTime = 0;
+
 export function AppShell({ children }) {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
-    const [status, setStatus] = useState(null);
+    const [status, setStatus] = useState(_cachedStatus);
     const [mobileOpen, setMobileOpen] = useState(false);
 
     useEffect(() => {
-        api.get("/system/status").then(({ data }) => setStatus(data)).catch(() => {});
+        const now = Date.now();
+        if (_cachedStatus && now - _cachedStatusTime < 15000) {
+            setStatus(_cachedStatus);
+            return;
+        }
+        api.get("/system/status")
+            .then(({ data }) => {
+                _cachedStatus = data;
+                _cachedStatusTime = Date.now();
+                setStatus(data);
+            })
+            .catch(() => {});
     }, []);
 
     useEffect(() => {
@@ -141,8 +155,8 @@ export function AppShell({ children }) {
                         </div>
                         <div className="flex justify-between items-center text-zinc-400">
                             <span>LLM Core:</span>
-                            <span className="text-indigo-400 font-extrabold truncate max-w-[110px]">
-                                {status?.llm_backend?.mode === "ollama" ? "mistral:7b" : "cloud · fallback"}
+                            <span className="text-indigo-400 font-extrabold truncate max-w-[110px]" title={status?.llm_backend?.model || status?.llm_backend?.mode}>
+                                {status?.llm_backend?.model || (status?.llm_backend?.mode === "ollama" ? "ollama" : (status?.llm_backend?.mode === "lm_studio" ? "gemma-3-4b" : "google/gemma-3-4b"))}
                             </span>
                         </div>
                     </div>
