@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 
 echo ====================================================
 echo            Starting NEXUS-RAG Platform
-echo                 (Windows Edition)
+echo          100%% Offline Multimodal System
 echo ====================================================
 
 cd /d "%~dp0"
@@ -43,11 +43,37 @@ if not exist "%~dp0frontend\.env" (
     )
 )
 
+:: 1. Check MongoDB
+netstat -ano | findstr :27017 >nul 2>nul
+if %ERRORLEVEL% NEQ 0 (
+    echo [INFO] Starting local MongoDB service...
+    net start MongoDB >nul 2>nul
+)
+
+:: 2. Check and Pin Local Model in GPU VRAM
 where lms >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
     echo.
-    echo [0/2] Pinning google/gemma-3-4b in LM Studio GPU memory...
-    lms load google/gemma-3-4b --gpu max -y >nul 2>nul
+    echo [0/2] Checking GPU-Accelerated Offline Model in LM Studio...
+    lms ps 2>nul | findstr /I "gemma-3-4b" >nul 2>nul
+    if %ERRORLEVEL% EQU 0 (
+        echo [OK] google/gemma-3-4b is already hot in RTX 4050 GPU VRAM.
+    ) else (
+        :: Free any idling Ollama models from VRAM to prevent GPU memory contention
+        where ollama >nul 2>nul
+        if %ERRORLEVEL% EQU 0 (
+            ollama stop gemma3:latest >nul 2>nul
+            ollama stop llama3:latest >nul 2>nul
+        )
+        echo [INFO] Pinning google/gemma-3-4b into RTX 4050 GPU VRAM (100%% GPU offload)...
+        lms load google/gemma-3-4b --gpu max -y
+        if %ERRORLEVEL% EQU 0 (
+            echo [OK] Model successfully pinned into GPU VRAM!
+        ) else (
+            echo [WARNING] Could not automatically load model via lms CLI.
+            echo Please make sure LM Studio is open and the Local Server toggle is ON.
+        )
+    )
 )
 
 echo.
@@ -61,9 +87,10 @@ start "NEXUS-RAG Frontend (React)" /D "%~dp0frontend" cmd /k "call npm start"
 echo.
 echo ====================================================
 echo   NEXUS-RAG Services are launching!
-echo   - Backend:  http://localhost:8001
-echo   - Swagger:  http://localhost:8001/docs
-echo   - Frontend: http://localhost:3000
+echo   - Backend API:  http://localhost:8001
+echo   - Swagger Docs: http://localhost:8001/docs
+echo   - Web Frontend: http://localhost:3000
+echo   - Offline Mode: 100%% Active (No Internet Required)
 echo ====================================================
 echo.
 ping 127.0.0.1 -n 6 >nul
