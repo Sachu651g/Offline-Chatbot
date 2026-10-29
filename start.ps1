@@ -5,6 +5,12 @@ Write-Host "====================================================" -ForegroundCol
 
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+# 0. Ensure LM Studio model is pinned with GPU acceleration
+if (Get-Command lms -ErrorAction SilentlyContinue) {
+    Write-Host "`n[0/2] Pinning google/gemma-3-4b into GPU VRAM..." -ForegroundColor Cyan
+    lms load google/gemma-3-4b --gpu max -y 2>$null
+}
+
 # 1. Start Backend in a new window
 Write-Host "`n[1/2] Starting FastAPI Backend on http://localhost:8001..." -ForegroundColor Yellow
 Start-Process -FilePath "cmd.exe" -ArgumentList "/k `"cd /d `"$scriptPath\backend`" && call .venv\Scripts\activate.bat && python -m uvicorn server:app --host 0.0.0.0 --port 8001 --reload`""

@@ -120,8 +120,8 @@ async def _load_history(conv_id, current_attachments=None, limit=6):
             continue
         # Truncate very long previous assistant breakdowns to prevent few-shot template bias
         # on unrelated follow-up queries while maintaining conversational context
-        if m.get("role") == "assistant" and len(content) > 350:
-            content = content[:320] + "..."
+        if m.get("role") == "assistant" and len(content) > 250:
+            content = content[:220] + "..."
         clean_history.append({"role": m["role"], "content": content})
     return clean_history
 
@@ -157,7 +157,9 @@ def _is_doc_reference_query(question: str) -> bool:
         "according to the document", "mentioned in the slide", "from the file",
         "what are the key challenges", "date in the document", "date on the card",
         "issue date", "expiry date", "name on the card", "name in the document",
-        "what is the total", "who is the issuer"
+        "what is the total", "who is the issuer", "details of this", "details",
+        "tell me about this", "what is this", "information", "verify", "who is this",
+        "what does this image", "what does this document", "about this", "describe"
     )
     return any(kw in q_lower for kw in ref_indicators)
 
@@ -487,14 +489,10 @@ async def stream(request: Request, user: dict = Depends(get_current_user)):
                 t_retrieve = time.perf_counter() - t1
                 text_hits, visual_hits = [], []
             else:
-                # Parallelize text and CLIP embeddings for global RAG retrieval
+                # Sequential high-speed embeddings (prevents Windows OpenMP PyTorch threadpool deadlock)
                 t_emb_0 = time.perf_counter()
-                res_text_emb, res_clip_emb = await asyncio.gather(
-                    embeddings.embed_texts([question]),
-                    embeddings.embed_clip_text([question])
-                )
-                q_text_emb = res_text_emb[0]
-                q_clip_emb = res_clip_emb[0]
+                q_text_emb = (await embeddings.embed_texts([question]))[0]
+                q_clip_emb = (await embeddings.embed_clip_text([question]))[0]
                 t_embed = time.perf_counter() - t_emb_0
 
                 t1 = time.perf_counter()
@@ -507,11 +505,12 @@ async def stream(request: Request, user: dict = Depends(get_current_user)):
                 if target_chunks:
                     fused = target_chunks
                 else:
-                    RELEVANCE_THRESHOLD = 0.42
-                    fused = [
-                        h for h in fused
-                        if (h.get("score") is not None and h.get("score") >= RELEVANCE_THRESHOLD)
-                    ]
+                    # Keep all retrieved chunks so direct and indirect queries are answered accurately
+                    fused = [h for h in fused if (h.get("score") is not None and h.get("score") > 0.02)]
+                    if not fused:
+                        fallback_chunks = await _resolve_attached_and_referenced_chunks(user["id"], "the document", attachments, conv_id)
+                        if fallback_chunks:
+                            fused = fallback_chunks[:top_k]
                 t_retrieve = time.perf_counter() - t1
 
             rankings = {

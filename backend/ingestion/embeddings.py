@@ -74,7 +74,17 @@ async def embed_clip_text(texts):
     return await asyncio.to_thread(_embed_clip_text_sync, texts)
 
 
+def _ensure_lms_model_loaded():
+    try:
+        import subprocess
+        res = subprocess.run(["lms", "ps"], capture_output=True, text=True, timeout=5)
+        if "google/gemma-3-4b" not in res.stdout:
+            subprocess.run(["lms", "load", "google/gemma-3-4b", "--gpu", "max", "-y"], capture_output=True, text=True, timeout=60)
+    except Exception:
+        pass
+
 def warm_up():
-    """Pre-load both encoders so the first request is fast."""
+    """Pre-load encoders and ensure local LLM is pinned in GPU memory."""
     _load_text()
     _load_clip()
+    _ensure_lms_model_loaded()

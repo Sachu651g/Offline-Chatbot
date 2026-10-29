@@ -95,33 +95,40 @@ def build_user_prompt(question, fused_hits, has_image=False):
             active_files.append(fn)
 
     file_header = f"ACTIVE RESOURCE: {', '.join(active_files)}\n\n" if active_files else ""
+    context = build_context_block(fused_hits) if fused_hits else ""
 
     if has_image:
+        ocr_context = f"\n\nEXTRACTED DOCUMENT OCR TRANSCRIPT:\n{context}" if context.strip() else ""
         return (
             f"{file_header}"
             f"QUESTION: {question}\n\n"
-            "Inspect the attached image directly and answer clearly and accurately based on what is visible."
+            f"INSTRUCTIONS:\n"
+            f"- Inspect the attached image directly and answer the user's question with 100% accuracy based on what is visible.{ocr_context}\n"
+            "- Extract and list relevant details clearly (document type, names, IDs, dates, numbers, text fields).\n"
+            "- Answer directly, cleanly, and concisely using Markdown headers (###), bold labels, and bullet points."
         )
 
-    context = build_context_block(fused_hits) if fused_hits else ""
     has_context = bool(context.strip())
 
     if not has_context:
         return (
             f"QUESTION: {question}\n\n"
             "INSTRUCTIONS:\n"
-            "- Answer the user's question thoroughly, clearly, and in a well-structured format using your extensive knowledge base.\n"
-            "- Use clean Markdown headings (###), bullet points (*), bold terms, and double line breaks.\n"
-            "- For programming or algorithm queries, provide working, optimal code blocks with Big-O time and space complexity.\n"
-            "- Do NOT mention 'provided context' or 'documents' since no file is attached."
+            "- Answer the user's question directly, clearly, and concisely.\n"
+            "- Use clean Markdown headings (###), bold labels, and neat bullet points (*).\n"
+            "- If asked for code, provide clean, working, and concise code with brief comments.\n"
+            "- Avoid unnecessary verbosity or unrequested complexity analysis."
         )
 
     return (
         f"{file_header}"
-        f"CONTEXT (from user documents):\n{context}\n\n"
+        f"CONTEXT (from uploaded documents):\n{context}\n\n"
         f"QUESTION: {question}\n\n"
         "INSTRUCTIONS:\n"
-        "- If the question asks about the provided active resource/context, ground your response thoroughly in the data above.\n"
-        "- If the question is an independent technical or general knowledge question, answer it directly and accurately from your knowledge base.\n"
-        "- Structure your answer with clear Markdown headings (###), bold labels, neat bullet points, and clean spacing."
+        "- The user is asking about their uploaded documents or related topics.\n"
+        "- Answer any query related directly or indirectly to the provided context with high accuracy.\n"
+        "- Ground your facts, figures, dates, and conclusions in the document content above.\n"
+        "- If synthesizing or explaining concepts, connect them clearly to the provided document facts.\n"
+        "- Structure your answer with clean Markdown headings (###), bold key terms, and bullet points.\n"
+        "- Keep responses direct, informative, and concise."
     )

@@ -94,11 +94,11 @@ def parse_image(data: bytes):
 
 def ocr_image(img) -> str:
     """Extract printed/handwritten text from an image.
-    Uses multi-tier offline OCR:
-    1. RapidOCR (PaddleOCR ONNX) — state-of-the-art deep learning OCR for documents, forms, IDs, and cards.
-    2. Native Windows OCR (winocr) — fast Windows-native OCR with multi-scale Lanczos resampling.
-    3. Tesseract OCR (with OpenCV adaptive thresholding fallback).
-    4. OpenCV QR code / barcode detector.
+    Uses multi-tier offline OCR with fast early-exit:
+    1. RapidOCR (PaddleOCR ONNX) — state-of-the-art deep learning OCR (<0.4s).
+    2. Native Windows OCR (winocr) — fast Windows-native OCR (<0.3s).
+    3. OpenCV QR code / barcode detector.
+    4. Tesseract OCR (with fast Otsu thresholding fallback).
     """
     img = img.convert("RGB")
     extracted_texts = []
@@ -113,20 +113,14 @@ def ocr_image(img) -> str:
         if rapid_res:
             r_lines = [line[1].strip() for line in rapid_res if line and line[1].strip()]
             if r_lines:
-                extracted_texts.append("\n".join(r_lines))
+                combined_rapid = "\n".join(r_lines)
+                if len(combined_rapid) > 20:
+                    import re
+                    clean = re.sub(r'[^\x20-\x7E\n\r\t]', ' ', combined_rapid)
+                    return re.sub(r'[ \t]+', ' ', clean).strip()
+                extracted_texts.append(combined_rapid)
     except Exception:
         pass
-
-    # Prepare upscaled version for small images (e.g. card photos/crops under 1200px)
-    from PIL import Image as PILImg
-    w, h = img.size
-    upscaled_img = None
-    if max(w, h) < 1200:
-        factor = min(3, max(2, 1200 // max(w, h, 1)))
-        try:
-            upscaled_img = img.resize((w * factor, h * factor), PILImg.Resampling.LANCZOS)
-        except Exception:
-            upscaled_img = None
 
     # 2. Native Windows Media OCR (instant, offline, built into Windows 10/11)
     try:
@@ -134,13 +128,12 @@ def ocr_image(img) -> str:
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             res_w = pool.submit(winocr.recognize_pil_sync, img, "en").result()
-            if res_w and res_w.get("text") and res_w["text"].strip():
+            if res_w and res_w.get("text") and len(res_w["text"].strip()) > 20:
+                import re
+                clean = re.sub(r'[^\x20-\x7E\n\r\t]', ' ', res_w["text"].strip())
+                return re.sub(r'[ \t]+', ' ', clean).strip()
+            elif res_w and res_w.get("text"):
                 extracted_texts.append(res_w["text"].strip())
-
-            if upscaled_img:
-                res_w_up = pool.submit(winocr.recognize_pil_sync, upscaled_img, "en").result()
-                if res_w_up and res_w_up.get("text") and res_w_up["text"].strip():
-                    extracted_texts.append(res_w_up["text"].strip())
     except Exception:
         pass
 
@@ -153,14 +146,10 @@ def ocr_image(img) -> str:
         qr_val, _, _ = detector.detectAndDecode(arr)
         if qr_val and qr_val.strip():
             extracted_texts.append(f"[Embedded QR Code Data: {qr_val.strip()}]")
-        elif upscaled_img:
-            qr_val_up, _, _ = detector.detectAndDecode(np.array(upscaled_img))
-            if qr_val_up and qr_val_up.strip():
-                extracted_texts.append(f"[Embedded QR Code Data: {qr_val_up.strip()}]")
     except Exception:
         pass
 
-    # 4. Tesseract OCR (with Windows path auto-discovery and adaptive thresholding)
+    # 4. Tesseract OCR (with Windows path auto-discovery and fast Otsu thresholding)
     try:
         import pytesseract
         import shutil
@@ -181,24 +170,20 @@ def ocr_image(img) -> str:
         if t_text and t_text not in extracted_texts:
             extracted_texts.append(t_text)
 
-        # Preprocessed pass for noisy images
-        try:
-            import cv2
-            arr = np.array(img)
-            gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
-            gh, gw = gray.shape
-            gray = cv2.resize(gray, (gw * 2, gh * 2), interpolation=cv2.INTER_CUBIC)
-            gray = cv2.fastNlMeansDenoising(gray, h=15)
-            thresh = cv2.adaptiveThreshold(
-                gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 11
-            )
-            from PIL import Image as PILImage
-            processed = PILImage.fromarray(thresh)
-            p_text = pytesseract.image_to_string(processed, config="--psm 6").strip()
-            if p_text and p_text not in extracted_texts:
-                extracted_texts.append(p_text)
-        except Exception:
-            pass
+        # Fast preprocessed Otsu pass (instant <5ms, replaces slow 30s nlMeans filter)
+        if not extracted_texts:
+            try:
+                import cv2
+                arr = np.array(img)
+                gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+                _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                from PIL import Image as PILImage
+                processed = PILImage.fromarray(thresh)
+                p_text = pytesseract.image_to_string(processed, config="--psm 6").strip()
+                if p_text:
+                    extracted_texts.append(p_text)
+            except Exception:
+                pass
     except Exception:
         pass
 

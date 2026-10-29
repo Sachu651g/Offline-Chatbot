@@ -43,6 +43,13 @@ if not exist "%~dp0frontend\.env" (
     )
 )
 
+where lms >nul 2>nul
+if %ERRORLEVEL% EQU 0 (
+    echo.
+    echo [0/2] Pinning google/gemma-3-4b in LM Studio GPU memory...
+    lms load google/gemma-3-4b --gpu max -y >nul 2>nul
+)
+
 echo.
 echo [1/2] Starting FastAPI Backend on http://localhost:8001...
 start "NEXUS-RAG Backend (FastAPI)" /D "%~dp0backend" cmd /k "call .venv\Scripts\activate.bat && python -m uvicorn server:app --host 0.0.0.0 --port 8001 --reload"
