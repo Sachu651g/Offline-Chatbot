@@ -13,27 +13,23 @@ def get_system_prompt(model: str | None = None) -> str:
     else:
         model_name = model or "Gemma 3"
 
-    now_str = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p")
+    now_str = datetime.now().strftime("%A, %B %d, %Y")
 
     return (
-        f"You are NEXUS-RAG, an elite offline AI assistant powered locally by {model_name}.\n"
-        f"CURRENT SYSTEM TIME & DATE: {now_str}\n\n"
-        "Formatting & Presentation Standards:\n"
-        "1. Clean Markdown Hierarchy: Format answers cleanly using Markdown headers (`### Section Title`), bold labels (`**Field:**`), and bulleted lists (`* Item`).\n"
-        "2. Visual Spacing: Separate paragraphs and list items with clear double newlines.\n"
-        "3. Direct & Concise: Answer queries directly, accurately, and concisely. Never generate long-winded preambles, redundant filler, or repetitive explanations unless asked for extensive elaboration.\n"
-        "4. Independent Queries: When asked general questions, current date, definitions, or code questions, answer directly and accurately using your knowledge and the current system date.\n"
-        "5. Document & Image Grounding: When an attached document, image, or retrieved snippet is provided, ground your answer on the visible content with exact precision.\n"
-        "6. Diagrams & Charts: When explaining workflows or architectures, include a ```mermaid block. When summarizing numbers, include a ```chart block.\n"
-        "7. Zero Hallucination: Never fabricate missing information. If an attribute is not visible or unknown, state that directly rather than guessing."
+        f"You are NEXUS-RAG, an offline AI assistant powered locally by {model_name}.\n"
+        f"[Internal Clock reference: {now_str}]\n\n"
+        "STRICT INSTRUCTIONS:\n"
+        "1. ANSWER ONLY WHAT IS ASKED: Answer ONLY the specific question asked by the user. Never volunteer extra unasked information, unrequested document fields, or unsolicited sections.\n"
+        "2. NO UNASKED DATE OR TIME: NEVER mention or output the current date, time, or system clock UNLESS the user explicitly asks about the date or time.\n"
+        "3. TARGETED RESPONSES: If the user asks for a specific fact (e.g. a name, a number, a date, an address, or a single detail), give ONLY that specific answer directly. Do NOT output a full document summary or additional data.\n"
+        "4. SUMMARIES ONLY WHEN EXPLICITLY REQUESTED: Only summarize or list all details if the user explicitly asks to 'summarize', 'explain all details', or 'give all information'.\n"
+        "5. DIRECT & CONCISE: Start directly with the answer. Do not use conversational filler or preambles."
     )
 
 
 SYSTEM_PROMPT = get_system_prompt()
 
 # Deterministic, zero-latency small-talk / conversational detector.
-# Includes greetings, casual chat, and direct identity/model questions so they
-# never trigger unnecessary ChromaDB retrieval passes across unrelated documents.
 _SMALL_TALK_PATTERNS = [
     r"^(hi|hello|hey|yo|sup|hiya)[\s!.,]*$",
     r"^(good\s?(morning|afternoon|evening|night))[\s!.,]*$",
@@ -98,14 +94,15 @@ def build_user_prompt(question, fused_hits, has_image=False):
     context = build_context_block(fused_hits) if fused_hits else ""
 
     if has_image:
-        ocr_context = f"\n\nEXTRACTED DOCUMENT OCR TRANSCRIPT:\n{context}" if context.strip() else ""
+        ocr_context = f"\n\nEXTRACTED DOCUMENT OCR TEXT:\n{context}" if context.strip() else ""
         return (
             f"{file_header}"
             f"QUESTION: {question}\n\n"
-            f"INSTRUCTIONS:\n"
-            f"- Inspect the attached image directly and answer the user's question with 100% accuracy based on what is visible.{ocr_context}\n"
-            "- Extract and list relevant details clearly (document type, names, IDs, dates, numbers, text fields).\n"
-            "- Answer directly, cleanly, and concisely using Markdown headers (###), bold labels, and bullet points."
+            "INSTRUCTIONS:\n"
+            f"- Answer ONLY what is specifically asked in the QUESTION above using the attached image and OCR text.{ocr_context}\n"
+            "- Do NOT mention the current date or system time.\n"
+            "- Do NOT provide unrequested extra information, unasked fields, or unsolicited summaries.\n"
+            "- If asked for a specific detail (e.g. name, ID, number, date), output ONLY that detail directly."
         )
 
     has_context = bool(context.strip())
@@ -114,10 +111,8 @@ def build_user_prompt(question, fused_hits, has_image=False):
         return (
             f"QUESTION: {question}\n\n"
             "INSTRUCTIONS:\n"
-            "- Answer the user's question directly, clearly, and concisely.\n"
-            "- Use clean Markdown headings (###), bold labels, and neat bullet points (*).\n"
-            "- If asked for code, provide clean, working, and concise code with brief comments.\n"
-            "- Avoid unnecessary verbosity or unrequested complexity analysis."
+            "- Answer ONLY what is asked in the QUESTION directly, accurately, and concisely.\n"
+            "- Do NOT add unrequested extra information, unasked dates, or unsolicited sections."
         )
 
     return (
@@ -125,10 +120,8 @@ def build_user_prompt(question, fused_hits, has_image=False):
         f"CONTEXT (from uploaded documents):\n{context}\n\n"
         f"QUESTION: {question}\n\n"
         "INSTRUCTIONS:\n"
-        "- The user is asking about their uploaded documents or related topics.\n"
-        "- Answer any query related directly or indirectly to the provided context with high accuracy.\n"
-        "- Ground your facts, figures, dates, and conclusions in the document content above.\n"
-        "- If synthesizing or explaining concepts, connect them clearly to the provided document facts.\n"
-        "- Structure your answer with clean Markdown headings (###), bold key terms, and bullet points.\n"
-        "- Keep responses direct, informative, and concise."
+        "- Answer ONLY what is specifically asked in the QUESTION above using the context provided.\n"
+        "- Do NOT mention the current date or system time.\n"
+        "- Do NOT provide unrequested extra sections, additional information, or document summaries unless explicitly asked to summarize.\n"
+        "- If asked for a specific detail, provide ONLY that requested answer directly and concisely."
     )
