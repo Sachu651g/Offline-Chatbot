@@ -65,8 +65,8 @@ if %ERRORLEVEL% EQU 0 (
             ollama stop gemma3:latest >nul 2>nul
             ollama stop llama3:latest >nul 2>nul
         )
-        echo [INFO] Pinning google/gemma-3-4b into RTX 4050 GPU VRAM (100%% GPU offload)...
-        lms load google/gemma-3-4b --gpu max -y
+        echo [INFO] Pinning google/gemma-3-4b into RTX 4050 GPU VRAM (100%% GPU offload, 24h keep-alive)...
+        lms load google/gemma-3-4b --gpu max --ttl 86400 --identifier google/gemma-3-4b -y
         if %ERRORLEVEL% EQU 0 (
             echo [OK] Model successfully pinned into GPU VRAM!
         ) else (

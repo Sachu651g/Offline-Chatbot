@@ -2,7 +2,7 @@
 
 Connects to LM Studio's local server (default: http://localhost:1234/v1).
 Supports streaming chat completions, model listing, health checks,
-and multimodal vision captioning.
+and multimodal vision captioning with resilient idle-connection handling.
 """
 import json
 import time
@@ -16,12 +16,27 @@ _last_active_time = 0
 _http_client: httpx.AsyncClient | None = None
 
 
-def _get_client() -> httpx.AsyncClient:
+def _reset_client():
     global _http_client
+    if _http_client is not None:
+        try:
+            # We recreate a fresh client; old one will be garbage collected
+            _http_client = None
+        except Exception:
+            _http_client = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _http_client, _last_active_time
+    now = time.time()
+    # If connection was idle for more than 40 seconds, discard old pooled socket
+    if _http_client is not None and not _http_client.is_closed and (now - _last_active_time > 40.0):
+        _http_client = None
+
     if _http_client is None or _http_client.is_closed:
         _http_client = httpx.AsyncClient(
-            limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
-            timeout=httpx.Timeout(connect=3.0, read=None, write=30.0, pool=None),
+            limits=httpx.Limits(max_keepalive_connections=5, max_connections=15, keepalive_expiry=15.0),
+            timeout=httpx.Timeout(connect=5.0, read=50.0, write=15.0, pool=5.0),
         )
     return _http_client
 
@@ -44,14 +59,14 @@ async def is_available(host: str | None = None) -> bool:
 
 
 async def status(host: str | None = None, model: str | None = None) -> dict:
-    global _status_cache, _status_cache_time
+    global _status_cache, _status_cache_time, _last_active_time
     now = time.time()
     h = _normalize_host(host)
     m = _model(model)
     cache_key = f"{h}::{m}"
 
-    # Return cached status if recent (within 10 seconds) and marked reachable
-    if now - _status_cache_time < 10.0 and cache_key in _status_cache:
+    # Return cached status if recent (within 8 seconds) and marked reachable
+    if now - _status_cache_time < 8.0 and cache_key in _status_cache:
         cached = _status_cache[cache_key]
         if cached.get("reachable"):
             return cached
@@ -62,30 +77,41 @@ async def status(host: str | None = None, model: str | None = None) -> dict:
         if cached.get("reachable"):
             return cached
 
+    r = None
     try:
         client = _get_client()
-        r = await client.get(f"{h}/models", timeout=3.0)
-        if r.status_code == 200:
-            raw_models = r.json().get("data", [])
-            models = [x.get("id") for x in raw_models if x.get("id")]
-            gen_models = [x for x in models if "embed" not in x.lower()]
-            effective_models = gen_models if gen_models else models
-            loaded = (m in models) or (len(models) > 0 and (not m or m == "auto"))
-            effective_model = m if (m and m in models) else (effective_models[0] if effective_models else m)
-            res = {
-                "reachable": True,
-                "host": h,
-                "model": effective_model,
-                "loaded": loaded,
-                "available_models": models,
-            }
-            _status_cache[cache_key] = res
-            _status_cache_time = now
-            return res
+        r = await client.get(f"{h}/models", timeout=4.0)
     except Exception:
-        # If a transient error/timeout occurs while actively in use, retain last known reachable status
-        if cache_key in _status_cache and _status_cache[cache_key].get("reachable") and (now - _status_cache_time < 20.0):
-            return _status_cache[cache_key]
+        # On connection drop after idle, reset client and retry with a fresh socket
+        _reset_client()
+        try:
+            client = _get_client()
+            r = await client.get(f"{h}/models", timeout=4.0)
+        except Exception:
+            r = None
+
+    if r and r.status_code == 200:
+        raw_models = r.json().get("data", [])
+        models = [x.get("id") for x in raw_models if x.get("id")]
+        gen_models = [x for x in models if "embed" not in x.lower()]
+        effective_models = gen_models if gen_models else models
+        loaded = (m in models) or (len(models) > 0 and (not m or m == "auto"))
+        effective_model = m if (m and m in models) else (effective_models[0] if effective_models else m)
+        res = {
+            "reachable": True,
+            "host": h,
+            "model": effective_model,
+            "loaded": loaded,
+            "available_models": models,
+        }
+        _status_cache[cache_key] = res
+        _status_cache_time = now
+        _last_active_time = now
+        return res
+
+    # If a transient error occurs but we were reachable within 20s, preserve reachable state
+    if cache_key in _status_cache and _status_cache[cache_key].get("reachable") and (now - _status_cache_time < 20.0):
+        return _status_cache[cache_key]
 
     res = {
         "reachable": False,
@@ -113,12 +139,10 @@ async def stream_chat(
     m = _model(model)
     cache_key = f"{h}::{m}"
 
-    # Use cached model resolution if available to avoid an extra network roundtrip before every request
     cached_status = _status_cache.get(cache_key)
     if cached_status and cached_status.get("reachable") and cached_status.get("model"):
         m = cached_status["model"]
     elif not m or m == "auto":
-        # Resolve loaded model if not cached
         try:
             stat = await status(h, m)
             if stat.get("reachable") and stat.get("model"):
@@ -151,54 +175,64 @@ async def stream_chat(
         "stop": ["<|im_end|>", "<|endoftext|>", "<|im_start|>", "<end_of_turn>", "<eos>"],
     }
 
-    client = _get_client()
-    async with client.stream("POST", f"{h}/chat/completions", json=payload, timeout=None) as resp:
-        if resp.status_code != 200:
-            err_text = await resp.aread()
-            yield f"[LM Studio Error {resp.status_code}]: {err_text.decode('utf-8', errors='ignore')}"
+    req_timeout = httpx.Timeout(connect=8.0, read=60.0, write=15.0, pool=8.0)
+
+    # Attempt request with automatic retry if socket was closed by server during idle
+    for attempt in range(2):
+        client = _get_client()
+        try:
+            async with client.stream("POST", f"{h}/chat/completions", json=payload, timeout=req_timeout) as resp:
+                if resp.status_code != 200:
+                    err_text = await resp.aread()
+                    yield f"[LM Studio Error {resp.status_code}]: {err_text.decode('utf-8', errors='ignore')}"
+                    return
+
+                repeat_char = None
+                repeat_count = 0
+                async for line in resp.aiter_lines():
+                    if not line:
+                        continue
+                    line_str = line.strip()
+                    if line_str == "data: [DONE]":
+                        break
+                    if line_str.startswith("data: "):
+                        data_json = line_str[6:].strip()
+                        try:
+                            data = json.loads(data_json)
+                        except Exception:
+                            continue
+                        choices = data.get("choices", [])
+                        if choices:
+                            delta = choices[0].get("delta", {})
+                            token = delta.get("content")
+                            if token:
+                                _last_active_time = time.time()
+                                if "?" in token and token.count("?") >= 2:
+                                    token = token.replace("?", "")
+                                    if not token:
+                                        break
+
+                                if len(token) == 1 and token in "?!.-*# ":
+                                    if token == repeat_char:
+                                        repeat_count += 1
+                                        if repeat_count >= 2:
+                                            break
+                                    else:
+                                        repeat_char = token
+                                        repeat_count = 1
+                                else:
+                                    repeat_char = None
+                                    repeat_count = 0
+
+                                if token:
+                                    yield token
             return
-
-        repeat_char = None
-        repeat_count = 0
-        async for line in resp.aiter_lines():
-            if not line:
+        except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadTimeout, httpx.WriteError) as exc:
+            _reset_client()
+            if attempt == 0:
                 continue
-            line_str = line.strip()
-            if line_str == "data: [DONE]":
-                break
-            if line_str.startswith("data: "):
-                data_json = line_str[6:].strip()
-                try:
-                    data = json.loads(data_json)
-                except Exception:
-                    continue
-                choices = data.get("choices", [])
-                if choices:
-                    delta = choices[0].get("delta", {})
-                    token = delta.get("content")
-                    if token:
-                        _last_active_time = time.time()
-                        # Strip out degenerate repeating question marks
-                        if "?" in token and token.count("?") >= 2:
-                            token = token.replace("?", "")
-                            if not token:
-                                break
-
-                        # Loop breaker for degenerate repeating single chars (e.g. ?)
-                        if len(token) == 1 and token in "?!.-*# ":
-                            if token == repeat_char:
-                                repeat_count += 1
-                                if repeat_count >= 2:
-                                    break
-                            else:
-                                repeat_char = token
-                                repeat_count = 1
-                        else:
-                            repeat_char = None
-                            repeat_count = 0
-
-                        if token:
-                            yield token
+            yield f"[LM Studio Connection Error]: {exc}. Please verify LM Studio Local Server is running."
+            return
 
 
 async def caption_image(
@@ -221,14 +255,8 @@ async def caption_image(
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "text",
-                        "text": prompt,
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
-                    },
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
                 ],
             }
         ],
@@ -238,7 +266,7 @@ async def caption_image(
     }
     try:
         client = _get_client()
-        r = await client.post(f"{h}/chat/completions", json=payload, timeout=12.0)
+        r = await client.post(f"{h}/chat/completions", json=payload, timeout=15.0)
         if r.status_code == 200:
             choices = r.json().get("choices", [])
             if choices:

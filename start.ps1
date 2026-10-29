@@ -24,8 +24,8 @@ if (Get-Command lms -ErrorAction SilentlyContinue) {
             ollama stop gemma3:latest 2>$null
             ollama stop llama3:latest 2>$null
         }
-        Write-Host "[INFO] Pinning google/gemma-3-4b into RTX 4050 GPU VRAM (100% GPU offload)..." -ForegroundColor Yellow
-        lms load google/gemma-3-4b --gpu max -y
+        Write-Host "[INFO] Pinning google/gemma-3-4b into RTX 4050 GPU VRAM (100% GPU offload, 24h keep-alive)..." -ForegroundColor Yellow
+        lms load google/gemma-3-4b --gpu max --ttl 86400 --identifier google/gemma-3-4b -y
         Write-Host "[OK] Model successfully pinned into GPU VRAM!" -ForegroundColor Green
     }
 }

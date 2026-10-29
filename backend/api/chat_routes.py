@@ -17,7 +17,7 @@ from ingestion import embeddings, parsers, chunking
 from retrieval import chroma_client
 from retrieval.rrf import rrf_fuse
 from llm import generator
-from llm.prompts import build_user_prompt, is_small_talk, is_date_query
+from llm.prompts import build_user_prompt, is_small_talk, is_date_query, is_model_query, get_model_specs_response
 from generation.file_builder import extract_file_directive, build_file
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -445,44 +445,54 @@ async def stream(request: Request, user: dict = Depends(get_current_user)):
                 yield "data: " + json.dumps({"type": "done", "latency": latency, "backend": backend, "content": fast_answer}) + "\n\n"
                 return
 
-            if is_small_talk(question) and not attachments:
-                # Skip retrieval entirely — no embedding, no ChromaDB query,
-                # no RRF fusion for plain small-talk greetings or direct model questions.
+            if is_model_query(question) and not attachments:
+                fast_answer = get_model_specs_response(llm_model)
                 yield "data: " + json.dumps({
                     "type": "meta", "conversation_id": conv_id, "sources": [],
                     "rankings": {"text": [], "visual": [], "fused": []},
                     "latency": {"embedding_ms": 0.0, "retrieval_ms": 0.0},
                 }) + "\n\n"
+                for word in fast_answer.split(" "):
+                    yield "data: " + json.dumps({"type": "token", "content": word + " "}) + "\n\n"
+                    await asyncio.sleep(0.01)
 
-                t2 = time.perf_counter()
-                answer = ""
-                async for tok in generator.stream_answer(conv_id, question,
-                                                          llm_host, llm_model, history=history, provider=prov):
-                    answer += tok
-                    yield "data: " + json.dumps({"type": "token", "content": tok}) + "\n\n"
-                t_gen = time.perf_counter() - t2
                 total = time.perf_counter() - t0
-
-                latency = {"embedding_ms": 0.0, "retrieval_ms": 0.0,
-                           "generation_ms": round(t_gen * 1000, 1),
-                           "total_ms": round(total * 1000, 1)}
-                display_answer, file_meta = _maybe_build_file(answer)
-                if file_meta:
-                    yield "data: " + json.dumps({"type": "file", **file_meta}) + "\n\n"
+                latency = {"embedding_ms": 0.0, "retrieval_ms": 0.0, "generation_ms": 15.0, "total_ms": round(total * 1000, 1)}
                 await db.messages.insert_one({
                     "id": str(uuid.uuid4()), "conversation_id": conv_id, "user_id": user["id"],
-                    "role": "assistant", "content": display_answer, "sources": [],
+                    "role": "assistant", "content": fast_answer, "sources": [],
                     "rankings": {"text": [], "visual": [], "fused": []},
-                    "latency": latency, "file": file_meta, "created_at": _now(),
+                    "latency": latency, "created_at": _now(),
                 })
                 backend = await generator.active_backend(llm_host, llm_model, provider=prov)
-                yield "data: " + json.dumps({"type": "done", "latency": latency, "backend": backend,
-                                             "content": display_answer}) + "\n\n"
+                yield "data: " + json.dumps({"type": "done", "latency": latency, "backend": backend, "content": fast_answer}) + "\n\n"
+                return
+
+            if is_small_talk(question) and not attachments:
+                fast_answer = "Hello! I am **NEXUS-RAG**, your offline multimodal AI assistant. How can I help you analyze your documents, images, or answer queries today?"
+                yield "data: " + json.dumps({
+                    "type": "meta", "conversation_id": conv_id, "sources": [],
+                    "rankings": {"text": [], "visual": [], "fused": []},
+                    "latency": {"embedding_ms": 0.0, "retrieval_ms": 0.0},
+                }) + "\n\n"
+                for word in fast_answer.split(" "):
+                    yield "data: " + json.dumps({"type": "token", "content": word + " "}) + "\n\n"
+                    await asyncio.sleep(0.01)
+
+                total = time.perf_counter() - t0
+                latency = {"embedding_ms": 0.0, "retrieval_ms": 0.0, "generation_ms": 15.0, "total_ms": round(total * 1000, 1)}
+                await db.messages.insert_one({
+                    "id": str(uuid.uuid4()), "conversation_id": conv_id, "user_id": user["id"],
+                    "role": "assistant", "content": fast_answer, "sources": [],
+                    "rankings": {"text": [], "visual": [], "fused": []},
+                    "latency": latency, "created_at": _now(),
+                })
+                backend = await generator.active_backend(llm_host, llm_model, provider=prov)
+                yield "data: " + json.dumps({"type": "done", "latency": latency, "backend": backend, "content": fast_answer}) + "\n\n"
                 return
 
             if attachments:
                 # Fast path: user attached specific file(s) or images.
-                # Skip heavy global CLIP/Text vector search across unrelated documents.
                 t_embed = 0.0
                 t1 = time.perf_counter()
                 fused = await _resolve_attached_and_referenced_chunks(user["id"], question, attachments, conv_id)
@@ -505,9 +515,10 @@ async def stream(request: Request, user: dict = Depends(get_current_user)):
                 if target_chunks:
                     fused = target_chunks
                 else:
-                    # Keep all retrieved chunks so direct and indirect queries are answered accurately
-                    fused = [h for h in fused if (h.get("score") is not None and h.get("score") > 0.02)]
-                    if not fused:
+                    is_doc_q = _is_doc_reference_query(question)
+                    min_score = 0.05 if is_doc_q else 0.28
+                    fused = [h for h in fused if (h.get("score") is not None and h.get("score") >= min_score)]
+                    if not fused and is_doc_q:
                         fallback_chunks = await _resolve_attached_and_referenced_chunks(user["id"], "the document", attachments, conv_id)
                         if fallback_chunks:
                             fused = fallback_chunks[:top_k]

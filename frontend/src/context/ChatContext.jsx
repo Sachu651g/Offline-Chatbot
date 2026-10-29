@@ -131,7 +131,13 @@ export function ChatProvider({ children }) {
         const activeAttachments = customAttachments !== null ? customAttachments : attachments;
         const hasAttachments = activeAttachments.length > 0;
 
-        if ((!question && !hasAttachments) || streaming) return;
+        if (!question && !hasAttachments) return;
+
+        // If a previous stream is lingering or stalled, abort it cleanly to avoid locking the UI
+        if (streaming && abortRef.current) {
+            try { abortRef.current.abort(); } catch { /* ignore */ }
+            abortRef.current = null;
+        }
 
         const currentAttachments = [...activeAttachments];
         const effectiveQuestion = question || (hasAttachments ? `Analyze and explain this attached ${currentAttachments[0].name}.` : "");
@@ -157,6 +163,13 @@ export function ChatProvider({ children }) {
 
         const controller = new AbortController();
         abortRef.current = controller;
+
+        const streamTimeout = setTimeout(() => {
+            if (abortRef.current === controller) {
+                try { controller.abort(); } catch {}
+                setStreaming(false);
+            }
+        }, 55000);
 
         try {
             const resp = await fetch(`${API}/chat/stream`, {
@@ -270,6 +283,16 @@ export function ChatProvider({ children }) {
                         if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
                         flushContent();
                         toast.error(obj.message || "Generation error");
+                        setMessages((m) => {
+                            const copy = [...m];
+                            if (copy.length > 0 && !copy[copy.length - 1].content) {
+                                copy[copy.length - 1] = {
+                                    ...copy[copy.length - 1],
+                                    content: "⚠️ " + (obj.message || "Local generation encountered an issue."),
+                                };
+                            }
+                            return copy;
+                        });
                     }
                 }
             }
@@ -282,6 +305,7 @@ export function ChatProvider({ children }) {
                 toast.error("Streaming failed: " + err.message);
             }
         } finally {
+            clearTimeout(streamTimeout);
             abortRef.current = null;
             setStreaming(false);
             loadConversations();

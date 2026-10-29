@@ -29,23 +29,30 @@ def get_system_prompt(model: str | None = None) -> str:
 
 SYSTEM_PROMPT = get_system_prompt()
 
-# Deterministic, zero-latency small-talk / conversational detector.
+# Comprehensive small-talk & conversational greetings regex
 _SMALL_TALK_PATTERNS = [
-    r"^(hi|hello|hey|yo|sup|hiya)[\s!.,]*$",
-    r"^(good\s?(morning|afternoon|evening|night))[\s!.,]*$",
-    r"^(how are you|how('?s| is) it going|what'?s up)[\s!.,]*$",
-    r"^(thanks?( you)?|thank you( so much)?|ty|thx)[\s!.,]*$",
-    r"^(bye|goodbye|see ya|see you|cya|later)[\s!.,]*$",
-    r"^(ok(ay)?|cool|nice|great|awesome|got it|sounds good)[\s!.,]*$",
-    r"^(who are you|what are you|what can you do|tell me about yourself)[\s?!.,]*$",
-    r"^(what|which)\s+(model|llm|ai)\s+(are\s+(you|u)(\s+using)?|is\s+this|do\s+(you|u)\s+use|do\s+(you|u)\s+run)[\s?!.,]*$",
-    r"^(what|which)\s+model[\s?!.,]*$",
-    r"^which\s+model\s+(are\s+)?(u|you)[\s?!.,]*$",
-    r"^what\s+(is\s+your\s+model|model\s+are\s+you)[\s?!.,]*$",
-    r"^(are\s+you\s+(chatgpt|openai|gpt|claude))[\s?!.,]*$",
+    r"^(h(i|ello|ey|eyy+|lo|lw|iya)|yo|sup|hola|heya)[\s!.,]*$",
+    r"^(good\s?(morning|afternoon|evening|night|day))[\s!.,]*$",
+    r"^(how are you|how('?s| is) it going|what'?s up|how do you do)[\s!.,]*$",
+    r"^(thanks?( you)?|thank you( so much)?|ty|thx|cheers)[\s!.,]*$",
+    r"^(bye|goodbye|see ya|see you|cya|later|take care)[\s!.,]*$",
+    r"^(ok(ay)?|cool|nice|great|awesome|got it|sounds good|done)[\s!.,]*$",
 ]
 _SMALL_TALK_RE = re.compile("|".join(_SMALL_TALK_PATTERNS), re.IGNORECASE)
 
+# Questions about the AI system itself, model architecture, or capabilities
+_MODEL_QUERY_PATTERNS = [
+    r"^(what|which)\s+(model|llm|ai)\s+(are\s+(you|u)(\s+using)?|is\s+this|do\s+(you|u)\s+use|do\s+(you|u)\s+run|using)[\s?!.,]*$",
+    r"^(what|which)\s+(model|llm|ai)[\s?!.,]*$",
+    r"^what\s+(is\s+your\s+model(\s+using)?|model\s+are\s+you(\s+using)?)[\s?!.,]*$",
+    r"^(tell\s+me\s+about\s+your(self|\s+model)|explain\s+your\s+architecture)[\s?!.,]*$",
+    r"^(who\s+are\s+you|what\s+are\s+you|what\s+can\s+you\s+do|who\s+made\s+you)[\s?!.,]*$",
+    r"^(what\s+is\s+nexus(\s*rag)?)[\s?!.,]*$",
+    r"^(are\s+you\s+(chatgpt|openai|gpt|claude|gemini|gemma|llama))[\s?!.,]*$",
+]
+_MODEL_QUERY_RE = re.compile("|".join(_MODEL_QUERY_PATTERNS), re.IGNORECASE)
+
+# Date and time queries
 _DATE_TIME_PATTERNS = [
     r"^(what\s+is\s+)?(today('?s)?|the\s+current)\s+date[\s?!.,]*$",
     r"^(current|today('?s)?)\s+date[\s?!.,]*$",
@@ -60,12 +67,31 @@ _DATE_TIME_RE = re.compile("|".join(_DATE_TIME_PATTERNS), re.IGNORECASE)
 
 def is_small_talk(question: str) -> bool:
     q = question.strip()
-    return bool(q) and len(q) <= 100 and bool(_SMALL_TALK_RE.match(q))
+    return bool(q) and len(q) <= 80 and bool(_SMALL_TALK_RE.match(q))
+
+
+def is_model_query(question: str) -> bool:
+    q = question.strip()
+    return bool(q) and len(q) <= 120 and bool(_MODEL_QUERY_RE.match(q))
 
 
 def is_date_query(question: str) -> bool:
     q = question.strip()
     return bool(q) and len(q) <= 80 and bool(_DATE_TIME_RE.match(q))
+
+
+def get_model_specs_response(model_name: str | None = None) -> str:
+    m_name = model_name or "Google Gemma 3 4B Vision"
+    return (
+        f"I am **NEXUS-RAG**, running **100% offline locally** on your machine with zero cloud dependencies.\n\n"
+        f"**Local Hardware & AI Architecture:**\n"
+        f"• **Language Model**: {m_name} (accelerated locally on your NVIDIA GeForce RTX 4050 GPU via LM Studio)\n"
+        f"• **Dense Semantic Text Embeddings**: `all-MiniLM-L6-v2` (384-dimensional dense vectors)\n"
+        f"• **Visual Multimodal Embeddings**: `clip-ViT-B-32` (512-dimensional CLIP vectors)\n"
+        f"• **Vector Database**: Local ChromaDB with Reciprocal Rank Fusion (RRF)\n"
+        f"• **OCR & Vision Engine**: RapidOCR / Windows OCR\n"
+        f"• **Deployment Mode**: 100% air-gapped / offline."
+    )
 
 
 def build_context_block(fused_hits):
@@ -111,8 +137,8 @@ def build_user_prompt(question, fused_hits, has_image=False):
         return (
             f"QUESTION: {question}\n\n"
             "INSTRUCTIONS:\n"
-            "- Answer ONLY what is asked in the QUESTION directly, accurately, and concisely.\n"
-            "- Do NOT add unrequested extra information, unasked dates, or unsolicited sections."
+            "- Answer what is asked in the QUESTION directly, accurately, and concisely.\n"
+            "- Do NOT add unrequested dates or unsolicited sections."
         )
 
     return (
@@ -120,7 +146,8 @@ def build_user_prompt(question, fused_hits, has_image=False):
         f"CONTEXT (from uploaded documents):\n{context}\n\n"
         f"QUESTION: {question}\n\n"
         "INSTRUCTIONS:\n"
-        "- Answer ONLY what is specifically asked in the QUESTION above using the context provided.\n"
+        "- If the QUESTION asks about facts in the uploaded documents, answer directly using the CONTEXT above.\n"
+        "- If the QUESTION is a general greeting or query not related to the documents, answer normally.\n"
         "- Do NOT mention the current date or system time.\n"
         "- Do NOT provide unrequested extra sections, additional information, or document summaries unless explicitly asked to summarize.\n"
         "- If asked for a specific detail, provide ONLY that requested answer directly and concisely."
