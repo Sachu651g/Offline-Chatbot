@@ -8,6 +8,8 @@ import { ModalityIcon } from "@/components/ModalityIcon";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { IngestHologramScanner } from "@/components/IngestHologramScanner";
+import { DocumentStructureScanner } from "@/components/DocumentStructureScanner";
 
 const STEPS = ["queued", "parsing", "embedding", "indexed"];
 
@@ -221,28 +223,26 @@ export default function Ingest() {
                     </div>
                 </div>
 
-                {/* Holographic Target Portal Dropzone */}
+                {/* Holographic Target Portal Dropzone with 3D Scanner Chamber */}
                 <div
                     {...getRootProps()}
                     data-testid="dropzone"
-                    className={`relative flex cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed p-12 sm:p-16 text-center transition-all ${
+                    className={`relative flex cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed p-6 sm:p-10 text-center transition-all hud-corner ${
                         isDragActive
-                            ? "border-indigo-400 bg-indigo-500/10 scale-[1.01]"
-                            : "border-[#1A1A24] bg-[#0E0E14] hover:border-indigo-500/50 hover:bg-[#12121A]"
+                            ? "border-cyan-400 bg-cyan-500/10 scale-[1.01]"
+                            : "border-[#1E1E2E] bg-[#0A0A12] hover:border-cyan-500/50 hover:bg-[#0E0E18]"
                     } shadow-2xl portal-pulse`}
                 >
                     <input {...getInputProps()} data-testid="file-input" />
-                    <motion.div
-                        animate={{ y: isDragActive ? -6 : 0 }}
-                        className="mb-4 flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-indigo-500/20 via-purple-500/20 to-pink-500/20 border border-indigo-500/40 text-indigo-300 shadow-2xl shadow-indigo-500/30"
-                    >
-                        {uploading ? <Loader2 className="animate-spin text-indigo-400" size={34} /> : <UploadCloud size={34} />}
-                    </motion.div>
-                    <h3 className="font-heading text-2xl font-extrabold tracking-tight text-white">
-                        {isDragActive ? "Drop files to ingest immediately" : "Drag & drop files here to ingest"}
+                    
+                    {/* 3D Holographic Ingestion Scanner */}
+                    <IngestHologramScanner isUploading={uploading} isDragActive={isDragActive} className="w-full max-w-sm" />
+
+                    <h3 className="font-heading text-2xl font-black tracking-tight text-white mt-1">
+                        {isDragActive ? "Drop files into Ingestion Matrix Chamber" : "Drag & drop files into Ingestion Matrix Chamber"}
                     </h3>
-                    <p className="mt-2 text-xs sm:text-sm text-zinc-400 max-w-sm">
-                        or click to browse local disk — multi-file batch uploads supported
+                    <p className="mt-1 text-xs sm:text-sm text-zinc-400 max-w-sm">
+                        or click to browse local disk — real-time offline OCR, text & audio vectorization
                     </p>
                     {/* File Format Badges */}
                     <div className="mt-6 flex flex-wrap justify-center gap-2 font-mono text-xs">
@@ -251,6 +251,11 @@ export default function Ingest() {
                         <span className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-1 font-bold text-amber-300">.png / .jpg (CLIP Vision)</span>
                         <span className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 font-bold text-emerald-300">.wav / .mp3 (Whisper Audio)</span>
                     </div>
+                </div>
+
+                {/* Interactive Document Structure & OCR Layout Segmentation Simulation */}
+                <div className="space-y-3">
+                    <DocumentStructureScanner />
                 </div>
 
                 {/* Processing Pipelines */}

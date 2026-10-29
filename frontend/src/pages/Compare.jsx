@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
+import { VectorRadar3D } from "@/components/VectorRadar3D";
 
 const RRF_K = 60;
 function rrfFuse(textHits, visualHits, wText, wVisual, topK) {
@@ -229,32 +230,45 @@ export default function Compare() {
     return (
         <AppShell>
             <div className="mx-auto max-w-7xl px-4 sm:px-8 py-8 space-y-6">
-                {/* Hero Header */}
-                <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-[#1A1A24] pb-6">
-                    <div className="space-y-2">
-                        <div className="inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3.5 py-1.5 font-mono text-[11px] font-extrabold text-indigo-300 shadow-lg">
-                            <GitCompareArrows size={14} className="text-indigo-400" />
+                {/* Hero Header with 3D Dual-Embedding Radar Deck */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 rounded-3xl border border-[#1E1E2E] glass-surface-3d p-6 shadow-2xl hud-corner">
+                    <div className="lg:col-span-2 space-y-3">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3.5 py-1.5 font-mono text-[11px] font-extrabold text-cyan-300 shadow-lg">
+                            <GitCompareArrows size={14} className="text-cyan-400" />
                             <span>Multi-Modal Dual Vector Fusion Matrix</span>
                         </div>
-                        <h1 className="font-heading text-4xl font-black tracking-tight text-white">Vector Compare Studio</h1>
-                        <p className="text-xs sm:text-sm text-zinc-400 max-w-2xl leading-relaxed">
+                        <h1 className="font-heading text-3xl sm:text-4xl font-black tracking-tight text-white">Vector Compare Studio</h1>
+                        <p className="text-xs sm:text-sm text-zinc-300 max-w-2xl leading-relaxed">
                             Analyze SentenceTransformers (384-d Text) vs CLIP (512-d Visual) vector search paths side-by-side. Adjust RRF weights in real time to inspect candidate re-ranking.
                         </p>
+
+                        {/* Presets */}
+                        <div className="space-y-1.5 pt-2">
+                            <span className="font-mono text-[10px] uppercase font-bold text-zinc-400 block">Sample Test Queries:</span>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                                {queryPresets.map((qp, i) => (
+                                    <button
+                                        key={i}
+                                        onClick={() => run(qp)}
+                                        className="rounded-xl border border-[#252538] bg-[#12121E] px-3 py-1.5 font-mono text-[11px] font-bold text-zinc-300 hover:border-cyan-500/50 hover:text-white hover:bg-[#161626] transition-all shadow-sm"
+                                    >
+                                        {qp.split(" ")[0]} {qp.split(" ")[1]}…
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
                     </div>
 
-                    {/* Presets */}
-                    <div className="space-y-1.5">
-                        <span className="font-mono text-[10px] uppercase font-bold text-zinc-500 block">Sample Test Queries:</span>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                            {queryPresets.map((qp, i) => (
-                                <button
-                                    key={i}
-                                    onClick={() => run(qp)}
-                                    className="rounded-xl border border-[#1A1A24] bg-[#0E0E14] px-3 py-1.5 font-mono text-[10px] font-bold text-zinc-300 hover:border-indigo-500/50 hover:text-white hover:bg-[#12121A] transition-all shadow-sm"
-                                >
-                                    {qp.split(" ")[0]} {qp.split(" ")[1]}…
-                                </button>
-                            ))}
+                    <div className="lg:col-span-1 flex flex-col items-center justify-center border-t lg:border-t-0 lg:border-l border-[#1E1E2E] pt-4 lg:pt-0 lg:pl-6">
+                        <VectorRadar3D similarity={fused[0]?.rrf_score ? Math.min(0.95, fused[0].rrf_score * 25) : 0.8} className="w-full" />
+                        <div className="text-center mt-[-8px]">
+                            <span className="font-heading font-black text-xs text-white uppercase tracking-wider flex items-center justify-center gap-1.5">
+                                DUAL-EMBEDDING RADAR
+                                <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-ping" />
+                            </span>
+                            <span className="font-mono text-[10px] text-zinc-400">
+                                MiniLM (Cyan) vs CLIP (Rose) Cosine Projection
+                            </span>
                         </div>
                     </div>
                 </div>

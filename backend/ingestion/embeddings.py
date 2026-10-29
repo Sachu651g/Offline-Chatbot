@@ -33,8 +33,18 @@ def _load_clip():
     return _clip_model
 
 
+_text_cache = {}
+_clip_cache = {}
+
 def _embed_texts_sync(texts):
-    return _load_text().encode(texts, normalize_embeddings=True).tolist()
+    if len(texts) == 1 and texts[0] in _text_cache:
+        return [_text_cache[texts[0]]]
+    embs = _load_text().encode(texts, normalize_embeddings=True).tolist()
+    if len(texts) == 1:
+        if len(_text_cache) > 500:
+            _text_cache.clear()
+        _text_cache[texts[0]] = embs[0]
+    return embs
 
 
 def _embed_images_sync(images):
@@ -42,7 +52,14 @@ def _embed_images_sync(images):
 
 
 def _embed_clip_text_sync(texts):
-    return _load_clip().encode(texts, normalize_embeddings=True).tolist()
+    if len(texts) == 1 and texts[0] in _clip_cache:
+        return [_clip_cache[texts[0]]]
+    embs = _load_clip().encode(texts, normalize_embeddings=True).tolist()
+    if len(texts) == 1:
+        if len(_clip_cache) > 500:
+            _clip_cache.clear()
+        _clip_cache[texts[0]] = embs[0]
+    return embs
 
 
 async def embed_texts(texts):

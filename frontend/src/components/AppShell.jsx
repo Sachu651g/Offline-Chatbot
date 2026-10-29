@@ -64,19 +64,19 @@ export function AppShell({ children }) {
             {/* Floating Glass Capsule Dock Sidebar (Desktop) */}
             <aside className="hidden md:flex w-64 shrink-0 flex-col rounded-3xl border border-[#1A1A24] bg-[#0A0A0F]/85 backdrop-blur-2xl shadow-2xl z-20 overflow-hidden">
                 {/* Brand Capsule Header */}
-                <div className="flex items-center justify-between px-5 h-16 border-b border-[#1A1A24]/70 bg-gradient-to-r from-indigo-500/10 to-transparent">
+                <div className="flex items-center justify-between px-5 h-16 border-b border-[#1A1A24]/70 bg-gradient-to-r from-cyan-500/10 via-indigo-500/10 to-transparent">
                     <div className="flex items-center gap-3">
-                        <div className="relative flex h-9 w-9 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-600 to-pink-500 text-white shadow-lg shadow-indigo-500/30">
+                        <div className="relative flex h-9 w-9 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-400 via-indigo-600 to-pink-500 text-white shadow-lg shadow-cyan-500/30">
                             <Hexagon strokeWidth={2.5} size={20} />
                         </div>
                         <div className="flex flex-col">
                             <span className="font-heading font-black tracking-tight text-sm text-white flex items-center gap-1.5">
                                 NEXUS-RAG
-                                <span className="rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 px-1.5 py-0.2 font-mono text-[9px] font-black text-white shadow-sm">
-                                    AI
+                                <span className="rounded-full bg-gradient-to-r from-cyan-400 via-indigo-500 to-purple-500 px-1.5 py-0.2 font-mono text-[9px] font-black text-white shadow-sm">
+                                    OFFLINE
                                 </span>
                             </span>
-                            <span className="font-mono text-[10px] text-zinc-500">Offline Multi-Modal Engine</span>
+                            <span className="font-mono text-[10px] text-zinc-400">Offline Neural Matrix</span>
                         </div>
                     </div>
                 </div>
@@ -136,27 +136,27 @@ export function AppShell({ children }) {
                 </nav>
 
                 {/* Offline Status Card */}
-                <div className="mx-3 mb-3 rounded-2xl border border-[#1A1A24] bg-gradient-to-b from-[#12121A] to-[#0A0A0F] p-3.5 shadow-2xl" data-testid="offline-status-card">
+                <div className="mx-3 mb-3 rounded-2xl border border-[#1A1A24] glass-surface-3d p-3.5 shadow-2xl hud-corner" data-testid="offline-status-card">
                     <div className="flex items-center justify-between border-b border-[#1A1A24]/60 pb-2.5">
                         <div className="flex items-center gap-2">
-                            <span className="status-dot-live h-2.5 w-2.5 rounded-full bg-emerald-400" />
+                            <span className="status-dot-live h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />
                             <span className="font-mono text-[10px] font-extrabold uppercase tracking-wider text-emerald-400">
-                                Offline Engine Active
+                                Offline Engine Prime
                             </span>
                         </div>
-                        <Sparkles size={13} className="text-indigo-400 animate-pulse" />
+                        <Sparkles size={13} className="text-cyan-400 animate-pulse" />
                     </div>
                     <div className="mt-2.5 space-y-1.5 font-mono text-[11px]">
                         <div className="flex justify-between items-center text-zinc-400">
                             <span>HNSW Vectors:</span>
-                            <span className="text-white font-extrabold bg-zinc-800/80 px-2 py-0.5 rounded-md text-[10px]">
+                            <span className="text-white font-extrabold bg-zinc-800/80 px-2 py-0.5 rounded-md text-[10px] border border-white/5">
                                 {vectors !== null ? `${vectors}` : "active"}
                             </span>
                         </div>
                         <div className="flex justify-between items-center text-zinc-400">
-                            <span>LLM Core:</span>
-                            <span className="text-indigo-400 font-extrabold truncate max-w-[110px]" title={status?.llm_backend?.model || status?.llm_backend?.mode}>
-                                {status?.llm_backend?.model || (status?.llm_backend?.mode === "ollama" ? "ollama" : (status?.llm_backend?.mode === "lm_studio" ? "gemma-3-4b" : "google/gemma-3-4b"))}
+                            <span>Neural Core:</span>
+                            <span className="text-cyan-300 font-extrabold truncate max-w-[110px]" title={status?.llm_backend?.model || status?.llm_backend?.mode}>
+                                {status?.llm_backend?.model || (status?.llm_backend?.mode === "ollama" ? "gemma3" : (status?.llm_backend?.mode === "lm_studio" ? "gemma-3-4b" : "gemma-3-4b"))}
                             </span>
                         </div>
                     </div>

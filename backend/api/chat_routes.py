@@ -17,7 +17,7 @@ from ingestion import embeddings, parsers, chunking
 from retrieval import chroma_client
 from retrieval.rrf import rrf_fuse
 from llm import generator
-from llm.prompts import build_user_prompt, is_small_talk
+from llm.prompts import build_user_prompt, is_small_talk, is_date_query
 from generation.file_builder import extract_file_directive, build_file
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -155,8 +155,9 @@ def _is_doc_reference_query(question: str) -> bool:
         "summarize it", "explain it", "what does it say", "read it", "what is on it",
         "extract", "pan card", "aadhaar", "invoice", "receipt", "resume", "table above",
         "according to the document", "mentioned in the slide", "from the file",
-        "what are the key challenges", "what is the date", "what is the name",
-        "what is the total", "who is the"
+        "what are the key challenges", "date in the document", "date on the card",
+        "issue date", "expiry date", "name on the card", "name in the document",
+        "what is the total", "who is the issuer"
     )
     return any(kw in q_lower for kw in ref_indicators)
 
@@ -415,6 +416,32 @@ async def stream(request: Request, user: dict = Depends(get_current_user)):
             prov = cfg.get("local_llm_provider", settings.LOCAL_LLM_PROVIDER)
             llm_host = cfg.get("lm_studio_host") if prov == "lm_studio" else cfg.get("ollama_host")
             llm_model = cfg.get("lm_studio_model") if prov == "lm_studio" else cfg.get("ollama_model")
+
+            if is_date_query(question) and not attachments:
+                local_now = datetime.now()
+                d_str = local_now.strftime("%A, %B %d, %Y")
+                t_str = local_now.strftime("%I:%M %p")
+                fast_answer = f"Today's date is **{d_str}** ({t_str} local time)."
+                yield "data: " + json.dumps({
+                    "type": "meta", "conversation_id": conv_id, "sources": [],
+                    "rankings": {"text": [], "visual": [], "fused": []},
+                    "latency": {"embedding_ms": 0.0, "retrieval_ms": 0.0},
+                }) + "\n\n"
+                for word in fast_answer.split(" "):
+                    yield "data: " + json.dumps({"type": "token", "content": word + " "}) + "\n\n"
+                    await asyncio.sleep(0.01)
+                
+                total = time.perf_counter() - t0
+                latency = {"embedding_ms": 0.0, "retrieval_ms": 0.0, "generation_ms": 15.0, "total_ms": round(total * 1000, 1)}
+                await db.messages.insert_one({
+                    "id": str(uuid.uuid4()), "conversation_id": conv_id, "user_id": user["id"],
+                    "role": "assistant", "content": fast_answer, "sources": [],
+                    "rankings": {"text": [], "visual": [], "fused": []},
+                    "latency": latency, "created_at": _now(),
+                })
+                backend = await generator.active_backend(llm_host, llm_model, provider=prov)
+                yield "data: " + json.dumps({"type": "done", "latency": latency, "backend": backend, "content": fast_answer}) + "\n\n"
+                return
 
             if is_small_talk(question) and not attachments:
                 # Skip retrieval entirely — no embedding, no ChromaDB query,

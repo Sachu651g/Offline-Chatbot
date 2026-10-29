@@ -1,5 +1,6 @@
 """Prompt templates that inject RRF-fused context with source citations."""
 import re
+from datetime import datetime
 
 def get_system_prompt(model: str | None = None) -> str:
     m = (model or "gemma-3-4b").lower()
@@ -12,16 +13,19 @@ def get_system_prompt(model: str | None = None) -> str:
     else:
         model_name = model or "Gemma 3"
 
+    now_str = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p")
+
     return (
-        f"You are NEXUS-RAG, an elite offline AI assistant powered locally by {model_name}.\n\n"
+        f"You are NEXUS-RAG, an elite offline AI assistant powered locally by {model_name}.\n"
+        f"CURRENT SYSTEM TIME & DATE: {now_str}\n\n"
         "Formatting & Presentation Standards:\n"
         "1. Clean Markdown Hierarchy: Format answers cleanly using Markdown headers (`### Section Title`), bold labels (`**Field:**`), and bulleted lists (`* Item`).\n"
         "2. Visual Spacing: Separate paragraphs and list items with clear double newlines.\n"
-        "3. Completeness & Depth: Provide thorough, detailed, and complete answers.\n"
-        "4. Independent Queries: When asked general questions, definitions, or code questions, answer comprehensively using your internal knowledge.\n"
+        "3. Direct & Concise: Answer queries directly, accurately, and concisely. Never generate long-winded preambles, redundant filler, or repetitive explanations unless asked for extensive elaboration.\n"
+        "4. Independent Queries: When asked general questions, current date, definitions, or code questions, answer directly and accurately using your knowledge and the current system date.\n"
         "5. Document & Image Grounding: When an attached document, image, or retrieved snippet is provided, ground your answer on the visible content with exact precision.\n"
         "6. Diagrams & Charts: When explaining workflows or architectures, include a ```mermaid block. When summarizing numbers, include a ```chart block.\n"
-        "7. Zero Hallucination: Never fabricate missing information. If an attribute is not visible, omit it rather than guessing."
+        "7. Zero Hallucination: Never fabricate missing information. If an attribute is not visible or unknown, state that directly rather than guessing."
     )
 
 
@@ -46,10 +50,26 @@ _SMALL_TALK_PATTERNS = [
 ]
 _SMALL_TALK_RE = re.compile("|".join(_SMALL_TALK_PATTERNS), re.IGNORECASE)
 
+_DATE_TIME_PATTERNS = [
+    r"^(what\s+is\s+)?(today('?s)?|the\s+current)\s+date[\s?!.,]*$",
+    r"^(current|today('?s)?)\s+date[\s?!.,]*$",
+    r"^what\s+date\s+is\s+(it|today)[\s?!.,]*$",
+    r"^what('?s| is)\s+the\s+date(\s+today)?[\s?!.,]*$",
+    r"^what\s+(time|day)\s+is\s+(it|today)[\s?!.,]*$",
+    r"^(what\s+is\s+)?(the\s+)?current\s+time[\s?!.,]*$",
+    r"^today('?s)?\s+day[\s?!.,]*$",
+]
+_DATE_TIME_RE = re.compile("|".join(_DATE_TIME_PATTERNS), re.IGNORECASE)
+
 
 def is_small_talk(question: str) -> bool:
     q = question.strip()
     return bool(q) and len(q) <= 100 and bool(_SMALL_TALK_RE.match(q))
+
+
+def is_date_query(question: str) -> bool:
+    q = question.strip()
+    return bool(q) and len(q) <= 80 and bool(_DATE_TIME_RE.match(q))
 
 
 def build_context_block(fused_hits):

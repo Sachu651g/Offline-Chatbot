@@ -147,7 +147,7 @@ async def stream_chat(
         "messages": messages,
         "stream": True,
         "temperature": 0.1,
-        "max_tokens": 1024 if images else 1536,
+        "max_tokens": 1024 if images else 768,
         "stop": ["<|im_end|>", "<|endoftext|>", "<|im_start|>", "<end_of_turn>", "<eos>"],
     }
 

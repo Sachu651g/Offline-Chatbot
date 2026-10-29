@@ -17,6 +17,9 @@ import { toast } from "sonner";
 import { Markdown } from "@/components/Markdown";
 import { FileCard } from "@/components/FileCard";
 import { useChat } from "@/context/ChatContext";
+import { FuturisticBot3D } from "@/components/FuturisticBot3D";
+import { Card3D } from "@/components/Card3D";
+import { DocumentMindmapSimulator } from "@/components/DocumentMindmapSimulator";
 
 function SourceCard({ src, index }) {
     const [open, setOpen] = useState(false);
@@ -269,30 +272,34 @@ function ConversationList({ conversations, convId, onOpen, onNew, onDelete }) {
     const filtered = conversations.filter(c => (c.title || "").toLowerCase().includes(search.toLowerCase()));
 
     return (
-        <div className="flex flex-col h-full bg-[#08080C]">
-            <div className="p-3 border-b border-[#1A1A24] space-y-2.5">
+        <div className="flex flex-col h-full bg-[#090912]">
+            <div className="p-3 border-b border-[#1E1E2E] space-y-2.5 bg-[#0D0D18]">
                 <Button
                     onClick={onNew}
                     data-testid="new-chat-button"
-                    className="w-full justify-start gap-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-xs font-extrabold text-white shadow-lg shadow-indigo-500/20 hover:opacity-95 transition-all h-10"
+                    className="w-full justify-start gap-2.5 rounded-2xl bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 text-xs font-black text-white shadow-lg shadow-cyan-500/20 hover:opacity-95 hover:shadow-cyan-500/30 transition-all h-10 border border-cyan-400/40"
                 >
-                    <Plus size={16} /> New Chat Studio
+                    <Plus size={16} strokeWidth={2.5} /> New Chat Studio
                 </Button>
-                <div className="relative">
-                    <Search size={13} className="absolute left-3 top-2.5 text-zinc-500" />
+                <div className="relative flex items-center">
+                    <Search size={14} className="absolute left-3 text-cyan-400/80 pointer-events-none z-10" />
                     <input
                         type="text"
                         placeholder="Filter chat history…"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        className="w-full h-8 rounded-lg border border-[#1A1A24] bg-[#12121A] pl-8 pr-2.5 font-mono text-xs text-white placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
+                        style={{ paddingLeft: "36px" }}
+                        className="w-full h-9 rounded-xl border border-[#252538] bg-[#141424] pr-3 font-mono text-xs text-white placeholder:text-zinc-400 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/40 transition-all"
                     />
                 </div>
             </div>
             <div className="flex-1 overflow-y-auto px-2 py-3 space-y-1">
-                <p className="px-2 pb-1.5 font-mono text-[10px] font-extrabold uppercase tracking-widest text-zinc-500">History</p>
+                <p className="px-2 pb-1.5 font-mono text-[10px] font-black uppercase tracking-widest text-zinc-400 flex items-center justify-between">
+                    <span>Chat History</span>
+                    <span className="text-[9px] text-cyan-400/70 font-mono">{filtered.length} THREADS</span>
+                </p>
                 {filtered.length === 0 && (
-                    <p className="px-2 py-4 text-center font-mono text-xs text-zinc-500">No chats found.</p>
+                    <p className="px-2 py-4 text-center font-mono text-xs text-zinc-400">No chats found.</p>
                 )}
                 {filtered.map((c) => (
                     <div
@@ -306,12 +313,12 @@ function ConversationList({ conversations, convId, onOpen, onNew, onDelete }) {
                         data-testid={`conversation-${c.id}`}
                         className={`group flex w-full cursor-pointer items-center justify-between rounded-xl px-3 py-2.5 text-left text-xs transition-all ${
                             c.id === convId
-                                ? "bg-indigo-500/20 text-white font-bold border-l-3 border-indigo-400"
-                                : "text-zinc-400 hover:bg-[#12121A] hover:text-zinc-200"
+                                ? "bg-gradient-to-r from-cyan-500/20 via-indigo-500/15 to-transparent text-white font-bold border-l-3 border-cyan-400 shadow-md"
+                                : "text-zinc-300 hover:bg-[#141424] hover:text-white"
                         }`}
                     >
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                            <MessageSquareText size={14} className="shrink-0 text-indigo-400" />
+                            <MessageSquareText size={14} className={`shrink-0 ${c.id === convId ? "text-cyan-400" : "text-indigo-400"}`} />
                             <span className="truncate">{c.title}</span>
                         </div>
                         <button
@@ -363,6 +370,7 @@ export default function Chat() {
     const fileInputRef = useRef(null);
     const recognitionRef = useRef(null);
     const scrollRef = useRef(null);
+    const [showMindmapStudio, setShowMindmapStudio] = useState(false);
 
     useEffect(() => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -672,17 +680,17 @@ export default function Chat() {
             color: "text-amber-400 bg-amber-500/10 border-amber-500/30",
         },
         {
-            title: "Inspect Match Scores",
-            desc: "Verify grounded source match confidence",
-            query: "Extract citations and confidence scores",
-            Icon: Cpu,
-            color: "text-rose-400 bg-rose-500/10 border-rose-500/30",
+            title: "Generate Knowledge Mindmap",
+            desc: "Extract concept hierarchy & interactive mindmap",
+            query: "Analyze my documents and generate a complete concept mindmap in a ```mermaid mindmap block with hierarchical topics and entities.",
+            Icon: GitBranch,
+            color: "text-cyan-400 bg-cyan-500/10 border-cyan-500/30",
         },
     ];
 
     return (
         <AppShell>
-            <div className="relative flex h-full overflow-hidden bg-[#030306]">
+            <div className="relative flex h-full overflow-hidden bg-[#030306] cyber-3d-grid">
                 {/* Desktop Expandable/Collapsible History Sidebar */}
                 <AnimatePresence initial={false}>
                     {showSidebar && (
@@ -691,7 +699,7 @@ export default function Chat() {
                             animate={{ width: 256, opacity: 1 }}
                             exit={{ width: 0, opacity: 0 }}
                             transition={{ duration: 0.25 }}
-                            className="hidden lg:flex shrink-0 flex-col border-r border-[#1A1A24] overflow-hidden"
+                            className="hidden lg:flex shrink-0 flex-col border-r border-[#1E1E2E] bg-[#090912] shadow-2xl z-10 overflow-hidden"
                         >
                             <ConversationList
                                 conversations={conversations}
@@ -774,6 +782,28 @@ export default function Chat() {
                             </button>
                         </div>
 
+                        {/* Center Floating Capsule: 3D Holographic Offline Bot Status */}
+                        <div className="pointer-events-auto flex items-center gap-2.5 rounded-2xl border border-[#1A1A24] bg-[#0E0E14]/85 backdrop-blur-xl px-3.5 py-1.5 shadow-2xl hud-corner">
+                            <div className="relative flex h-7 w-7 items-center justify-center">
+                                <FuturisticBot3D
+                                    mode="compact"
+                                    isGenerating={streaming}
+                                    isListening={recording || listening}
+                                    showHUD={false}
+                                    className="!w-7 !h-7 scale-90"
+                                />
+                            </div>
+                            <div className="hidden sm:flex flex-col text-left">
+                                <span className="font-heading font-black text-[11px] text-white flex items-center gap-1.5">
+                                    NEXUS NEURAL CORE
+                                    <span className={`h-1.5 w-1.5 rounded-full ${streaming ? 'bg-amber-400 animate-ping' : 'bg-emerald-400'}`} />
+                                </span>
+                                <span className="font-mono text-[9px] text-indigo-300">
+                                    {streaming ? 'PROCESSING NEURAL MATRIX…' : '100% OFFLINE SYNAPSE ARMED'}
+                                </span>
+                            </div>
+                        </div>
+
                         {/* Right Floating Capsule: New Chat + Share Chat + Full Thread Export */}
                         <div className="pointer-events-auto flex items-center gap-2">
                             {messages.length > 0 && (
@@ -799,6 +829,19 @@ export default function Chat() {
                             )}
 
                             <button
+                                onClick={() => setShowMindmapStudio(!showMindmapStudio)}
+                                title="Toggle Document Analysis Mindmap Simulator"
+                                className={`flex items-center gap-1.5 rounded-2xl border px-3 py-2 font-mono text-xs font-bold transition-all shadow-xl ${
+                                    showMindmapStudio
+                                        ? "border-cyan-400 bg-cyan-500/20 text-cyan-300 shadow-cyan-500/20"
+                                        : "border-[#1A1A24] bg-[#0E0E14]/80 text-zinc-300 hover:text-white hover:border-cyan-500/50"
+                                }`}
+                            >
+                                <GitBranch size={14} className="text-cyan-400" />
+                                <span>{showMindmapStudio ? "Close Mindmap" : "Mindmap Studio"}</span>
+                            </button>
+
+                            <button
                                 onClick={handleNewChat}
                                 data-testid="new-chat-button-top"
                                 aria-label="Start new chat"
@@ -813,34 +856,54 @@ export default function Chat() {
                     {/* Messages Container */}
                     <div ref={scrollRef} className="flex-1 overflow-y-auto pt-14">
                         <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 py-6">
+                            {/* Expandable Document Mindmap Simulator Studio */}
+                            <AnimatePresence>
+                                {showMindmapStudio && (
+                                    <motion.div
+                                        initial={{ opacity: 0, height: 0, y: -10 }}
+                                        animate={{ opacity: 1, height: "auto", y: 0 }}
+                                        exit={{ opacity: 0, height: 0, y: -10 }}
+                                        className="mb-6 overflow-hidden"
+                                    >
+                                        <DocumentMindmapSimulator />
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                             {messages.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center py-12 text-center space-y-6 hero-glow-halo relative z-10">
-                                    {/* Refined Glowing Badge */}
-                                    <div className="inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3.5 py-1.5 font-mono text-[11px] font-extrabold text-indigo-300 shadow-xl shadow-indigo-500/10">
-                                        <Sparkles size={14} className="animate-pulse text-indigo-400" />
-                                        <span>NEXUS Multi-Modal Engine</span>
+                                <div className="flex flex-col items-center justify-center py-4 text-center space-y-4 relative z-10">
+                                    {/* Interactive 3D Futuristic AI Bot */}
+                                    <div className="relative flex items-center justify-center">
+                                        <FuturisticBot3D
+                                            mode="hero"
+                                            isGenerating={streaming}
+                                            isListening={recording || listening}
+                                            showHUD={true}
+                                            className="my-[-14px]"
+                                        />
                                     </div>
 
-                                    {/* Elegant Headline & Subtitle */}
-                                    <div className="space-y-2 max-w-xl">
-                                        <h2 className="font-heading text-4xl font-black tracking-tight text-white">
-                                            Ask your knowledge base
+                                    {/* Futuristic Cyber Holographic Headline */}
+                                    <div className="space-y-1.5 max-w-xl">
+                                        <h2 className="font-heading text-3xl sm:text-4xl font-black tracking-tight text-white flex items-center justify-center gap-2">
+                                            NEXUS QUANTUM <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-indigo-400 to-purple-400">AI BOT</span>
                                         </h2>
-                                        <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed max-w-lg mx-auto">
-                                            Grounded offline retrieval across your ingested documents, images, and audio recordings.
+                                        <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed max-w-lg mx-auto font-medium">
+                                            Autonomous offline multimodal intelligence with neural spatial processing. Ingest, question, and analyze across all local files.
                                         </p>
                                     </div>
 
-                                    {/* Ultra-Clean Sleek Preset Action Cards */}
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl w-full pt-4">
+                                    {/* 3D Perspective Tilt Preset Action Cards */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl w-full pt-2">
                                         {promptPresets.map((preset, idx) => (
-                                            <button
+                                            <Card3D
                                                 key={idx}
+                                                maxTilt={8}
+                                                scale={1.02}
                                                 onClick={() => setInput(preset.query)}
-                                                className="group flex items-center justify-between rounded-2xl border border-[#1A1A24] bg-[#0E0E14]/80 p-3.5 text-left transition-all hover:border-indigo-500/40 hover:bg-[#12121A] shadow-xl hover:-translate-y-0.5"
+                                                className="group flex items-center justify-between rounded-2xl border border-[#1A1A24] bg-[#0E0E14]/85 p-3.5 text-left transition-all hover:border-indigo-500/50 hover:bg-[#12121A] shadow-xl hud-corner"
                                             >
                                                 <div className="flex items-center gap-3">
-                                                    <div className={`p-2 rounded-xl border ${preset.color}`}>
+                                                    <div className={`p-2.5 rounded-xl border ${preset.color} shadow-lg`}>
                                                         <preset.Icon size={16} />
                                                     </div>
                                                     <div>
@@ -853,7 +916,7 @@ export default function Chat() {
                                                     </div>
                                                 </div>
                                                 <ArrowUpRight size={16} className="text-zinc-500 group-hover:text-indigo-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all shrink-0 ml-2" />
-                                            </button>
+                                            </Card3D>
                                         ))}
                                     </div>
                                 </div>
@@ -939,11 +1002,18 @@ export default function Chat() {
                                             ) : (
                                                 <div className="w-full space-y-3.5" data-testid="assistant-message">
                                                     {/* AI Response Card with Integrated Response Export Buttons */}
-                                                    <div className="rounded-2xl border border-[#1A1A24] bg-[#0E0E14] p-5 text-xs sm:text-sm leading-relaxed text-zinc-200 shadow-xl space-y-3">
+                                                    <div className="rounded-3xl border border-[#1E1E2E] glass-surface-3d p-5 text-xs sm:text-sm leading-relaxed text-zinc-200 shadow-2xl space-y-3 relative overflow-hidden hud-corner">
                                                         <div className="flex items-center justify-between border-b border-[#1A1A24]/80 pb-3">
-                                                            <div className="flex items-center gap-2">
-                                                                <Bot size={18} className="text-indigo-400" />
-                                                                <span className="font-mono text-xs font-bold text-white">NEXUS AI Answer</span>
+                                                            <div className="flex items-center gap-2.5">
+                                                                <div className="relative flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-tr from-cyan-500 via-indigo-600 to-purple-600 text-white shadow-md shadow-cyan-500/30">
+                                                                    <Bot size={14} className="text-white" />
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="font-heading font-black text-xs text-white tracking-wide">NEXUS AI ANSWER</span>
+                                                                    <span className="rounded-md border border-indigo-500/30 bg-indigo-500/10 px-1.5 py-0.2 font-mono text-[9px] font-bold text-indigo-300">
+                                                                        OFFLINE CORE
+                                                                    </span>
+                                                                </div>
                                                             </div>
 
                                                             {/* Response Format Export Options */}
@@ -1259,6 +1329,17 @@ export default function Chat() {
                                     )}
                                 </button>
 
+                                {/* Live Audio Reactive Waveform Bars */}
+                                {recording && (
+                                    <div className="hidden sm:flex items-center gap-1 px-1.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/30 h-7">
+                                        <span className="audio-bar-1 w-1 bg-rose-400 rounded-full" />
+                                        <span className="audio-bar-2 w-1 bg-amber-400 rounded-full" />
+                                        <span className="audio-bar-3 w-1 bg-cyan-400 rounded-full" />
+                                        <span className="audio-bar-4 w-1 bg-indigo-400 rounded-full" />
+                                        <span className="audio-bar-5 w-1 bg-rose-400 rounded-full" />
+                                    </div>
+                                )}
+
                                 {/* Text Input Console */}
                                 <Textarea
                                     value={input}
@@ -1290,7 +1371,7 @@ export default function Chat() {
                         </div>
                         <div className="mx-auto mt-1.5 flex max-w-3xl items-center justify-between font-mono text-[10px] text-zinc-500/80 px-2">
                             <span>Grounded offline generation • Enter to send • Drag & drop or paste files</span>
-                            <span className="hidden sm:inline text-indigo-400/90 font-bold">ChromaDB + Qwen2.5-VL</span>
+                            <span className="hidden sm:inline text-indigo-400/90 font-bold font-mono">ChromaDB • Gemma-3-4B • 100% Offline Neural Core</span>
                         </div>
                     </div>
                 </div>

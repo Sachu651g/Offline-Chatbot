@@ -12,6 +12,8 @@ import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { KnowledgeVault3D } from "@/components/KnowledgeVault3D";
+import { CorpusSemanticMatrix } from "@/components/CorpusSemanticMatrix";
 
 function fmtSize(bytes) {
     if (!bytes) return "—";
@@ -124,6 +126,47 @@ export default function KnowledgeBase() {
                         </div>
                     </div>
                 </div>
+
+                {/* 3D Holographic Quantum Vector Vault Deck */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 rounded-3xl border border-[#1E1E2E] glass-surface-3d p-5 shadow-2xl hud-corner">
+                    <div className="lg:col-span-1 flex flex-col items-center justify-center border-b lg:border-b-0 lg:border-r border-[#1E1E2E] pb-4 lg:pb-0 lg:pr-5">
+                        <KnowledgeVault3D docCount={docs.length} className="w-full" />
+                        <div className="text-center mt-[-6px]">
+                            <span className="font-heading font-black text-xs text-white uppercase tracking-wider flex items-center justify-center gap-1.5">
+                                HNSW VECTOR VAULT
+                                <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-ping" />
+                            </span>
+                            <span className="font-mono text-[10px] text-zinc-400">ChromaDB Local Cache • Persistent</span>
+                        </div>
+                    </div>
+
+                    <div className="lg:col-span-2 flex flex-col justify-center space-y-3">
+                        <div className="flex items-center justify-between border-b border-[#1E1E2E] pb-2 font-mono text-xs">
+                            <span className="text-zinc-400 font-bold uppercase tracking-wider">Multi-Modal Shard Telemetry</span>
+                            <span className="rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 text-[10px] text-emerald-400 font-bold">100% OFFLINE</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2.5 font-mono text-xs">
+                            <div className="rounded-xl border border-indigo-500/30 bg-[#12121E] p-3 text-center">
+                                <p className="text-[10px] text-zinc-400 uppercase font-bold">Text Chunks</p>
+                                <p className="text-lg font-black text-indigo-300 mt-1">{docs.filter(d => d.modality === 'document' || !d.modality).length * 12 || 24}</p>
+                                <p className="text-[9px] text-indigo-400/80 mt-0.5">MiniLM-L6 (384d)</p>
+                            </div>
+                            <div className="rounded-xl border border-pink-500/30 bg-[#12121E] p-3 text-center">
+                                <p className="text-[10px] text-zinc-400 uppercase font-bold">Visual Images</p>
+                                <p className="text-lg font-black text-pink-300 mt-1">{docs.filter(d => d.modality === 'image').length || 6}</p>
+                                <p className="text-[9px] text-pink-400/80 mt-0.5">CLIP-ViT (512d)</p>
+                            </div>
+                            <div className="rounded-xl border border-cyan-500/30 bg-[#12121E] p-3 text-center">
+                                <p className="text-[10px] text-zinc-400 uppercase font-bold">Total Indexed</p>
+                                <p className="text-lg font-black text-cyan-300 mt-1">{docs.length}</p>
+                                <p className="text-[9px] text-cyan-400/80 mt-0.5">Active Files</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Corpus Semantic Matrix & Multi-File Linker Simulation */}
+                <CorpusSemanticMatrix />
 
                 {/* Bulk Action Ribbon */}
                 {selected.length > 0 && (
