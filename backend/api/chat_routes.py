@@ -123,7 +123,27 @@ async def _load_history(conv_id, current_attachments=None, limit=6):
         if m.get("role") == "assistant" and len(content) > 250:
             content = content[:220] + "..."
         clean_history.append({"role": m["role"], "content": content})
-    return clean_history
+
+    # Enforce strict alternating turns: user -> assistant -> user -> assistant
+    alternating_history = []
+    for item in clean_history:
+        if not alternating_history:
+            if item["role"] == "user":
+                alternating_history.append(item)
+        else:
+            if item["role"] != alternating_history[-1]["role"]:
+                alternating_history.append(item)
+            else:
+                if item["role"] == "assistant":
+                    alternating_history[-1]["content"] += "\n" + item["content"]
+                else:
+                    alternating_history[-1] = item
+
+    # Ensure history does NOT end with a user turn (since current question is the user turn)
+    if alternating_history and alternating_history[-1]["role"] == "user":
+        alternating_history.pop()
+
+    return alternating_history
 
 
 def _fmt_hits(hits):

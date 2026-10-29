@@ -166,6 +166,22 @@ async def stream_chat(
     else:
         messages.append({"role": "user", "content": user_prompt})
 
+    # Sanitize messages to guarantee strict role-turn alternation for local model templates
+    sanitized_messages = []
+    for msg in messages:
+        if not sanitized_messages:
+            sanitized_messages.append(msg)
+        elif msg["role"] == "system":
+            sanitized_messages.append(msg)
+        elif msg["role"] == sanitized_messages[-1]["role"]:
+            if isinstance(msg["content"], str) and isinstance(sanitized_messages[-1]["content"], str):
+                sanitized_messages[-1]["content"] += "\n" + msg["content"]
+            else:
+                sanitized_messages[-1] = msg
+        else:
+            sanitized_messages.append(msg)
+    messages = sanitized_messages
+
     payload = {
         "model": m,
         "messages": messages,
