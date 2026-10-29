@@ -1,15 +1,11 @@
-"""Dual-modality embeddings.
+"""Dual-modality embeddings with offline local snapshot caching.
 
 Text path : SentenceTransformers `all-MiniLM-L6-v2` (384-d).
-Visual path: CLIP `clip-ViT-B-32` (512-d) — a real CLIP-style encoder that maps
-             images AND text queries into one shared semantic space.
-
-NOTE (sandbox substitution): the original spec called for ColPali for the visual
-path. ColPali requires a GPU + multi-GB weights and cannot run in this CPU sandbox,
-so a lighter CLIP-style encoder is used instead. This is a documented substitution,
-not the original stack presented as-is.
+Visual path: CLIP `clip-ViT-B-32` (512-d).
 """
 import asyncio
+import os
+from pathlib import Path
 import torch  # Pre-initialize C++ runtime DLLs (c10.dll) on the main thread to prevent WinError 1114 in worker threads
 from core.config import settings
 
@@ -17,11 +13,34 @@ _text_model = None
 _clip_model = None
 
 
+def _resolve_local_model_path(model_name: str) -> str:
+    """Find direct local HuggingFace cache directory to guarantee 0-latency offline loading without network DNS checks."""
+    p = Path(model_name)
+    if p.exists():
+        return str(p)
+
+    hub_dir = Path(os.environ.get("USERPROFILE", "")) / ".cache" / "huggingface" / "hub"
+    candidates = [
+        hub_dir / f"models--{model_name.replace('/', '--')}" / "snapshots",
+        hub_dir / f"models--sentence-transformers--{model_name}" / "snapshots",
+    ]
+    for c in candidates:
+        if c.exists():
+            snaps = list(c.glob("*"))
+            if snaps:
+                return str(snaps[0])
+    return model_name
+
+
 def _load_text():
     global _text_model
     if _text_model is None:
         from sentence_transformers import SentenceTransformer
-        _text_model = SentenceTransformer(settings.TEXT_EMBED_MODEL)
+        path = _resolve_local_model_path(settings.TEXT_EMBED_MODEL)
+        try:
+            _text_model = SentenceTransformer(path, local_files_only=True)
+        except Exception:
+            _text_model = SentenceTransformer(settings.TEXT_EMBED_MODEL)
     return _text_model
 
 
@@ -29,12 +48,17 @@ def _load_clip():
     global _clip_model
     if _clip_model is None:
         from sentence_transformers import SentenceTransformer
-        _clip_model = SentenceTransformer(settings.VISUAL_EMBED_MODEL)
+        path = _resolve_local_model_path(settings.VISUAL_EMBED_MODEL)
+        try:
+            _clip_model = SentenceTransformer(path, local_files_only=True)
+        except Exception:
+            _clip_model = SentenceTransformer(settings.VISUAL_EMBED_MODEL)
     return _clip_model
 
 
 _text_cache = {}
 _clip_cache = {}
+
 
 def _embed_texts_sync(texts):
     if len(texts) == 1 and texts[0] in _text_cache:
@@ -74,17 +98,7 @@ async def embed_clip_text(texts):
     return await asyncio.to_thread(_embed_clip_text_sync, texts)
 
 
-def _ensure_lms_model_loaded():
-    try:
-        import subprocess
-        res = subprocess.run(["lms", "ps"], capture_output=True, text=True, timeout=5)
-        if "google/gemma-3-4b" not in res.stdout:
-            subprocess.run(["lms", "load", "google/gemma-3-4b", "--gpu", "max", "-y"], capture_output=True, text=True, timeout=60)
-    except Exception:
-        pass
-
 def warm_up():
-    """Pre-load encoders and ensure local LLM is pinned in GPU memory."""
+    """Pre-load encoders into memory."""
     _load_text()
     _load_clip()
-    _ensure_lms_model_loaded()

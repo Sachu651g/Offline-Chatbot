@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
     ScanEye, Search, Database, Layers, RefreshCw, Sparkles, ChevronRight,
     X, Binary, Cpu, Activity, Compass, Eye, Copy, Check, Zap, Box, FileSpreadsheet,
-    FileText, ShieldAlert, ArrowUpRight, Play
+    FileText, ShieldAlert, ArrowUpRight
 } from "lucide-react";
 import api from "@/lib/api";
 import { AppShell } from "@/components/AppShell";
@@ -281,7 +281,10 @@ export default function Inspector() {
                                         <p className="text-[10px] text-zinc-400 mt-1 leading-snug line-clamp-2">{t.desc}</p>
                                     </div>
                                     <span className="text-[9px] text-cyan-400 font-bold flex items-center gap-1 pt-1 border-t border-white/5">
-                                        <Play size={10} /> Probe Cosine Space
+                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" className="text-cyan-400">
+                                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                        </svg>
+                                        Probe Cosine Space
                                     </span>
                                 </button>
                             );

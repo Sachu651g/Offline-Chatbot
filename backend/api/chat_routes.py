@@ -17,7 +17,7 @@ from ingestion import embeddings, parsers, chunking
 from retrieval import chroma_client
 from retrieval.rrf import rrf_fuse
 from llm import generator
-from llm.prompts import build_user_prompt, is_small_talk, is_date_query, is_model_query, get_model_specs_response
+from llm.prompts import build_user_prompt, is_small_talk, resolve_date_time_query, resolve_live_query, is_model_query, get_model_specs_response
 from generation.file_builder import extract_file_directive, build_file
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -439,17 +439,14 @@ async def stream(request: Request, user: dict = Depends(get_current_user)):
             llm_host = cfg.get("lm_studio_host") if prov == "lm_studio" else cfg.get("ollama_host")
             llm_model = cfg.get("lm_studio_model") if prov == "lm_studio" else cfg.get("ollama_model")
 
-            if is_date_query(question) and not attachments:
-                local_now = datetime.now()
-                d_str = local_now.strftime("%A, %B %d, %Y")
-                t_str = local_now.strftime("%I:%M %p")
-                fast_answer = f"Today's date is **{d_str}** ({t_str} local time)."
+            dt_answer = resolve_date_time_query(question) if not attachments else None
+            if dt_answer:
                 yield "data: " + json.dumps({
                     "type": "meta", "conversation_id": conv_id, "sources": [],
                     "rankings": {"text": [], "visual": [], "fused": []},
                     "latency": {"embedding_ms": 0.0, "retrieval_ms": 0.0},
                 }) + "\n\n"
-                for word in fast_answer.split(" "):
+                for word in dt_answer.split(" "):
                     yield "data: " + json.dumps({"type": "token", "content": word + " "}) + "\n\n"
                     await asyncio.sleep(0.01)
                 
@@ -457,12 +454,35 @@ async def stream(request: Request, user: dict = Depends(get_current_user)):
                 latency = {"embedding_ms": 0.0, "retrieval_ms": 0.0, "generation_ms": 15.0, "total_ms": round(total * 1000, 1)}
                 await db.messages.insert_one({
                     "id": str(uuid.uuid4()), "conversation_id": conv_id, "user_id": user["id"],
-                    "role": "assistant", "content": fast_answer, "sources": [],
+                    "role": "assistant", "content": dt_answer, "sources": [],
                     "rankings": {"text": [], "visual": [], "fused": []},
                     "latency": latency, "created_at": _now(),
                 })
                 backend = await generator.active_backend(llm_host, llm_model, provider=prov)
-                yield "data: " + json.dumps({"type": "done", "latency": latency, "backend": backend, "content": fast_answer}) + "\n\n"
+                yield "data: " + json.dumps({"type": "done", "latency": latency, "backend": backend, "content": dt_answer}) + "\n\n"
+                return
+
+            live_answer = resolve_live_query(question) if not attachments else None
+            if live_answer:
+                yield "data: " + json.dumps({
+                    "type": "meta", "conversation_id": conv_id, "sources": [],
+                    "rankings": {"text": [], "visual": [], "fused": []},
+                    "latency": {"embedding_ms": 0.0, "retrieval_ms": 0.0},
+                }) + "\n\n"
+                for word in live_answer.split(" "):
+                    yield "data: " + json.dumps({"type": "token", "content": word + " "}) + "\n\n"
+                    await asyncio.sleep(0.01)
+                
+                total = time.perf_counter() - t0
+                latency = {"embedding_ms": 0.0, "retrieval_ms": 0.0, "generation_ms": 15.0, "total_ms": round(total * 1000, 1)}
+                await db.messages.insert_one({
+                    "id": str(uuid.uuid4()), "conversation_id": conv_id, "user_id": user["id"],
+                    "role": "assistant", "content": live_answer, "sources": [],
+                    "rankings": {"text": [], "visual": [], "fused": []},
+                    "latency": latency, "created_at": _now(),
+                })
+                backend = await generator.active_backend(llm_host, llm_model, provider=prov)
+                yield "data: " + json.dumps({"type": "done", "latency": latency, "backend": backend, "content": live_answer}) + "\n\n"
                 return
 
             if is_model_query(question) and not attachments:
@@ -511,6 +531,8 @@ async def stream(request: Request, user: dict = Depends(get_current_user)):
                 yield "data: " + json.dumps({"type": "done", "latency": latency, "backend": backend, "content": fast_answer}) + "\n\n"
                 return
 
+            is_doc_q = _is_doc_reference_query(question)
+
             if attachments:
                 # Fast path: user attached specific file(s) or images.
                 t_embed = 0.0
@@ -518,8 +540,24 @@ async def stream(request: Request, user: dict = Depends(get_current_user)):
                 fused = await _resolve_attached_and_referenced_chunks(user["id"], question, attachments, conv_id)
                 t_retrieve = time.perf_counter() - t1
                 text_hits, visual_hits = [], []
+            elif not is_doc_q and any(k in question.lower() for k in (
+                "write", "draft", "code", "program", "function", "script",
+                "calculate", "convert", "solve", "explain", "how to", "what is", "why",
+                "difference between", "summary of", "create", "generate", "tips for", "suggest", "email", "letter"
+            )):
+                # High-speed fast path for general coding, drafting, math, and concepts (skips visual CLIP query)
+                t_emb_0 = time.perf_counter()
+                q_text_emb = (await embeddings.embed_texts([question]))[0]
+                t_embed = time.perf_counter() - t_emb_0
+
+                t1 = time.perf_counter()
+                text_hits = chroma_client.query_text(q_text_emb, 2, user["id"], collection)
+                t_retrieve = time.perf_counter() - t1
+                visual_hits = []
+                # Only keep chunks if they have genuine semantic relevance (score >= 0.35)
+                fused = [h for h in text_hits if (h.get("score") is not None and h.get("score") >= 0.35)]
             else:
-                # Sequential high-speed embeddings (prevents Windows OpenMP PyTorch threadpool deadlock)
+                # Dual-path RRF search for document-specific questions
                 t_emb_0 = time.perf_counter()
                 q_text_emb = (await embeddings.embed_texts([question]))[0]
                 q_clip_emb = (await embeddings.embed_clip_text([question]))[0]
@@ -535,7 +573,6 @@ async def stream(request: Request, user: dict = Depends(get_current_user)):
                 if target_chunks:
                     fused = target_chunks
                 else:
-                    is_doc_q = _is_doc_reference_query(question)
                     min_score = 0.05 if is_doc_q else 0.28
                     fused = [h for h in fused if (h.get("score") is not None and h.get("score") >= min_score)]
                     if not fused and is_doc_q:

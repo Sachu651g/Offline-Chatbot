@@ -2,6 +2,7 @@
 import re
 from datetime import datetime
 
+
 def get_system_prompt(model: str | None = None) -> str:
     m = (model or "gemma-3-4b").lower()
     if "gemma" in m:
@@ -13,17 +14,18 @@ def get_system_prompt(model: str | None = None) -> str:
     else:
         model_name = model or "Gemma 3"
 
-    now_str = datetime.now().strftime("%A, %B %d, %Y")
+    now = datetime.now()
+    now_str = now.strftime("%A, %B %d, %Y")
+    time_str = now.strftime("%I:%M %p")
 
     return (
-        f"You are NEXUS-RAG, an offline AI assistant powered locally by {model_name}.\n"
-        f"[Internal Clock reference: {now_str}]\n\n"
-        "STRICT INSTRUCTIONS:\n"
-        "1. ANSWER ONLY WHAT IS ASKED: Answer ONLY the specific question asked by the user. Never volunteer extra unasked information, unrequested document fields, or unsolicited sections.\n"
-        "2. NO UNASKED DATE OR TIME: NEVER mention or output the current date, time, or system clock UNLESS the user explicitly asks about the date or time.\n"
-        "3. TARGETED RESPONSES: If the user asks for a specific fact (e.g. a name, a number, a date, an address, or a single detail), give ONLY that specific answer directly. Do NOT output a full document summary or additional data.\n"
-        "4. SUMMARIES ONLY WHEN EXPLICITLY REQUESTED: Only summarize or list all details if the user explicitly asks to 'summarize', 'explain all details', or 'give all information'.\n"
-        "5. DIRECT & CONCISE: Start directly with the answer. Do not use conversational filler or preambles."
+        f"You are NEXUS-RAG, an intelligent offline AI assistant powered locally by {model_name}.\n"
+        f"[Local System Clock: {now_str}, {time_str}]\n\n"
+        "CORE CAPABILITIES & GUIDELINES:\n"
+        "1. VERSATILE ASSISTANT: You excel at day-to-day general tasks: writing clean code in any language, drafting professional emails and letters, solving math/logic problems, explaining complex topics clearly, and summarizing information.\n"
+        "2. DOCUMENT GROUNDING: When document context or images are provided, answer faithfully using the facts in those documents without inventing unmentioned details.\n"
+        "3. DIRECT & HELPFUL: Give clear, accurate, high-quality answers. If the user asks for a specific detail, provide that detail directly. When writing code, provide working, well-commented code. When explaining or drafting, produce well-structured markdown.\n"
+        "4. NO SPURIOUS TIMESTAMPS: Only mention the date or time when the user specifically asks for it."
     )
 
 
@@ -52,18 +54,6 @@ _MODEL_QUERY_PATTERNS = [
 ]
 _MODEL_QUERY_RE = re.compile("|".join(_MODEL_QUERY_PATTERNS), re.IGNORECASE)
 
-# Date and time queries
-_DATE_TIME_PATTERNS = [
-    r"^(what\s+is\s+)?(today('?s)?|the\s+current)\s+date[\s?!.,]*$",
-    r"^(current|today('?s)?)\s+date[\s?!.,]*$",
-    r"^what\s+date\s+is\s+(it|today)[\s?!.,]*$",
-    r"^what('?s| is)\s+the\s+date(\s+today)?[\s?!.,]*$",
-    r"^what\s+(time|day)\s+is\s+(it|today)[\s?!.,]*$",
-    r"^(what\s+is\s+)?(the\s+)?current\s+time[\s?!.,]*$",
-    r"^today('?s)?\s+day[\s?!.,]*$",
-]
-_DATE_TIME_RE = re.compile("|".join(_DATE_TIME_PATTERNS), re.IGNORECASE)
-
 
 def is_small_talk(question: str) -> bool:
     q = question.strip()
@@ -75,9 +65,69 @@ def is_model_query(question: str) -> bool:
     return bool(q) and len(q) <= 120 and bool(_MODEL_QUERY_RE.match(q))
 
 
-def is_date_query(question: str) -> bool:
-    q = question.strip()
-    return bool(q) and len(q) <= 80 and bool(_DATE_TIME_RE.match(q))
+def resolve_date_time_query(question: str) -> str | None:
+    """Robust, multi-lingual day, date, and clock resolver.
+    Never fails on phrasing: 'what is Date Today', 'what is Time Now', 'tell about today's day', etc.
+    """
+    q = question.strip().lower()
+    if len(q) > 90:
+        return None
+
+    # Check if question contains time or date indicators
+    has_date = bool(re.search(r'\b(date|day)\b', q))
+    has_time = bool(re.search(r'\b(time|clock)\b', q))
+    has_today = bool(re.search(r'\b(today|now|current|present)\b', q))
+    is_what = bool(re.search(r'\b(what|tell|which|give|show|is it)\b', q))
+
+    if not (has_date or has_time):
+        return None
+
+    now = datetime.now()
+    d_str = now.strftime("%A, %B %d, %Y")
+    t_str = now.strftime("%I:%M %p")
+
+    # Asking for both date and time
+    if has_date and has_time:
+        return f"Today is **{d_str}**, and the local time is **{t_str}**."
+
+    # Asking specifically about time
+    if has_time and (has_today or is_what or "time" in q):
+        return f"The current local time is **{t_str}** ({d_str})."
+
+    # Asking specifically about date / day
+    if has_date and (has_today or is_what or "day" in q):
+        return f"Today is **{d_str}**."
+
+    return None
+
+
+def resolve_live_query(question: str) -> str | None:
+    """Polite, instant resolution for live internet feeds (sports fixtures, live stock tickers).
+    Avoids 20-second hangs on queries that require live external internet connections.
+    """
+    q = question.strip().lower()
+    if len(q) > 120:
+        return None
+
+    sports_match = any(w in q for w in [
+        "cricket match", "next match", "live score", "match schedule",
+        "ipl match", "football match", "world cup match", "match for india"
+    ])
+    if sports_match:
+        return (
+            "As NEXUS-RAG is running **100% offline and air-gapped** on your local machine, "
+            "I do not connect to external live web feeds for real-time sports fixtures or live match scores. "
+            "You can upload any tournament schedule, score sheet, or sports document, and I will analyze and extract the details for you!"
+        )
+
+    market_live = any(w in q for w in ["stock price of", "live stock", "crypto price right now", "share price of"])
+    if market_live:
+        return (
+            "As an offline local AI system, I do not have access to live external financial ticker feeds. "
+            "You can upload financial reports, balance sheets, or CSV stock data, and I will analyze them locally."
+        )
+
+    return None
 
 
 def get_model_specs_response(model_name: str | None = None) -> str:
@@ -125,10 +175,9 @@ def build_user_prompt(question, fused_hits, has_image=False):
             f"{file_header}"
             f"QUESTION: {question}\n\n"
             "INSTRUCTIONS:\n"
-            f"- Answer ONLY what is specifically asked in the QUESTION above using the attached image and OCR text.{ocr_context}\n"
-            "- Do NOT mention the current date or system time.\n"
-            "- Do NOT provide unrequested extra information, unasked fields, or unsolicited summaries.\n"
-            "- If asked for a specific detail (e.g. name, ID, number, date), output ONLY that detail directly."
+            f"- Answer what is specifically asked in the QUESTION above using the attached image and OCR text.{ocr_context}\n"
+            "- Only mention the date or system time if the question specifically asks for it.\n"
+            "- If asked for a specific detail (e.g. name, ID, number, date), output that detail directly."
         )
 
     has_context = bool(context.strip())
@@ -137,8 +186,10 @@ def build_user_prompt(question, fused_hits, has_image=False):
         return (
             f"QUESTION: {question}\n\n"
             "INSTRUCTIONS:\n"
-            "- Answer what is asked in the QUESTION directly, accurately, and concisely.\n"
-            "- Do NOT add unrequested dates or unsolicited sections."
+            "- Answer the user's question directly, accurately, and thoroughly.\n"
+            "- If writing code, provide clean, working code blocks with concise explanations.\n"
+            "- If drafting an email, letter, or plan, format it professionally with markdown headings and bullet points.\n"
+            "- Only mention date or time if specifically asked."
         )
 
     return (
@@ -147,8 +198,6 @@ def build_user_prompt(question, fused_hits, has_image=False):
         f"QUESTION: {question}\n\n"
         "INSTRUCTIONS:\n"
         "- If the QUESTION asks about facts in the uploaded documents, answer directly using the CONTEXT above.\n"
-        "- If the QUESTION is a general greeting or query not related to the documents, answer normally.\n"
-        "- Do NOT mention the current date or system time.\n"
-        "- Do NOT provide unrequested extra sections, additional information, or document summaries unless explicitly asked to summarize.\n"
-        "- If asked for a specific detail, provide ONLY that requested answer directly and concisely."
+        "- If the QUESTION is a general query, provide a helpful and direct answer.\n"
+        "- If asked for a specific detail from the document, provide that requested answer directly and concisely."
     )
